@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AsiaWX - Asian weather analysis</title>
+<meta name="description" content="Model forecasts and wind fields for Asia and the Western Pacific, with the source, model run and valid time shown for every dataset.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230e1a22'/%3E%3Cpath d='M2 6h8a2 2 0 1 0-2-2M2 10h10a2 2 0 1 1-2 2' fill='none' stroke='%2358b6cc' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="app">
+<header id="top">
+<div class="brand"><svg width="20" height="20" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6h8a2 2 0 1 0-2-2M2 10h10a2 2 0 1 1-2 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><span>AsiaWX</span></div>
+<div class="search">
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+<input id="q" type="search" role="combobox" aria-expanded="false" aria-controls="results" aria-autocomplete="list" autocomplete="off" placeholder="Place or lat, lon" aria-label="Search place or coordinates">
+<ul id="results" role="listbox" hidden></ul>
+</div>
+<label class="sel"><span class="vh">Forecast model</span><select id="model" aria-label="Forecast model"></select></label>
+<button id="tz" type="button" class="btn" aria-label="Time zone: UTC. Activate to switch" title="Switch UTC / local time">UTC</button>
+<button id="locate" type="button" class="btn ic" aria-label="Use my location" title="Use my location"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>
+<button id="full" type="button" class="btn ic" aria-label="Toggle fullscreen" title="Fullscreen"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+</header>
+<main id="mapwrap">
+<div id="map" role="application" aria-label="Map of Asia with wind field"></div>
+<canvas id="wind" aria-hidden="true"></canvas>
+<div id="status" role="status" aria-live="polite"></div>
+<div id="legend" aria-label="Wind speed legend"></div>
+<div id="coord" aria-live="off">Move the cursor over the map</div>
+<button id="sheetbtn" type="button" class="btn" aria-expanded="false" aria-controls="panel">Details</button>
+</main>
+<aside id="panel" aria-label="Analysis panel">
+<div role="tablist" id="tabs" aria-label="Panels">
+<button role="tab" id="t-loc" aria-controls="p-loc" aria-selected="true" type="button">Location</button>
+<button role="tab" id="t-lay" aria-controls="p-lay" aria-selected="false" type="button">Layers</button>
+<button role="tab" id="t-dec" aria-controls="p-dec" aria-selected="false" type="button">Decoder</button>
+<button role="tab" id="t-src" aria-controls="p-src" aria-selected="false" type="button">Sources</button>
+</div>
+<section id="p-loc" role="tabpanel" aria-labelledby="t-loc" tabindex="0"></section>
+<section id="p-lay" role="tabpanel" aria-labelledby="t-lay" tabindex="0" hidden></section>
+<section id="p-dec" role="tabpanel" aria-labelledby="t-dec" tabindex="0" hidden></section>
+<section id="p-src" role="tabpanel" aria-labelledby="t-src" tabindex="0" hidden></section>
+</aside>
+<footer id="dock">
+<button id="play" type="button" class="btn ic" aria-label="Play timeline"></button>
+<button id="prev" type="button" class="btn ic" aria-label="Previous hour"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+<button id="next" type="button" class="btn ic" aria-label="Next hour"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+<div class="track"><input id="slider" type="range" min="0" max="0" value="0" step="1" aria-label="Forecast hour" disabled><div id="tl-time"></div></div>
+<button id="now" type="button" class="btn">Now</button>
+<label class="sel"><span class="vh">Playback speed</span><select id="speed" aria-label="Playback speed"><option value="800">1x</option><option value="400">2x</option><option value="200">4x</option></select></label>
+</footer>
+</div>
+<script type="module" src="/src/main.ts"></script>
+</body>
+</html>
