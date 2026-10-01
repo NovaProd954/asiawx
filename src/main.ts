@@ -10,6 +10,9 @@ import {sampleInto,toSpeedDir,msToKt,type Field} from './lib/wind';
 import {fmtTime,compass,type Tz} from './lib/time';
 import {WindLayer,type Quality} from './wind/particles';
 import {renderMeteogram,renderTable} from './ui/meteogram';
+import {SatController} from './sat/controller';
+import {satLayerControls,satDecoderHtml,satDyn,satSig} from './sat/ui';
+import type {View} from './sat/decode';
 
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] as string));
@@ -23,7 +26,9 @@ const modelInfo=()=>MODELS.find(m=>m.id===st.model) as typeof MODELS[number];
 const PLAY='<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z" fill="currentColor"/></svg>';
 const PAUSE='<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h3v11H4zM9 2.5h3v11H9z" fill="currentColor"/></svg>';
 
-let map:maplibregl.Map|null=null,wind:WindLayer|null=null,marker:maplibregl.Marker|null=null;
+let map:maplibregl.Map|null=null,wind:WindLayer|null=null,marker:maplibregl.Marker|null=null,sc:SatController|null=null,satSigV='';
+const satOn=()=>!!(sc&&sc.ready);
+const cur=()=>satOn()&&sc?sc.idx:st.idx;
 const tmp=new Float32Array(2);
 
 function setStatus(msg:string,kind:'info'|'warn'|'err',retry?:()=>void){
@@ -44,8 +49,9 @@ map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-right')
 map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-left');
 map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-right');
 wind=new WindLayer(map,$<HTMLCanvasElement>('wind'));wind.setQuality(st.quality);wind.setOpacity(st.opacity);
+sc=new SatController(map,{change:satChanged,status:setStatus});renderLayers();
 map.on('load',()=>health.set('basemap',{ok:true,lastOk:Date.now(),err:null,ms:null}));
-map.on('error',e=>{const p=health.get('basemap');health.set('basemap',{ok:false,lastOk:p?.lastOk??null,err:String(e.error?.message??'tile or style error'),ms:null})});
+map.on('error',e=>{if(String((e as unknown as {sourceId?:string}).sourceId??'').startsWith('sat-'))return;const p=health.get('basemap');health.set('basemap',{ok:false,lastOk:p?.lastOk??null,err:String(e.error?.message??'tile or style error'),ms:null})});
 map.on('click',e=>selectPoint({lat:e.lngLat.lat,lon:e.lngLat.lng,name:coordName(e.lngLat.lat,e.lngLat.lng)}));
 let pend=false;
 map.on('mousemove',e=>{if(pend)return;pend=true;requestAnimationFrame(()=>{pend=false;readout(e.lngLat.lat,e.lngLat.lng)})});
@@ -55,7 +61,8 @@ const coordName=(lat:number,lon:number)=>`${Math.abs(lat).toFixed(2)}${lat<0?'S'
 function readout(lat:number,lon:number){
 const f=field();let w=' No wind data at this point';
 if(f&&sampleInto(f,lon,lat,tmp)){const r=toSpeedDir(tmp[0],tmp[1]);w=` Wind ${r.speed.toFixed(1)} m/s (${msToKt(r.speed).toFixed(0)} kt) from ${Math.round(r.dir)} deg ${compass(r.dir)}, interpolated model value`}
-$('coord').textContent=coordName(lat,lon)+w}
+const bt=sc?.btAt(lon,lat);
+$('coord').textContent=coordName(lat,lon)+w+(bt!=null?`. Cloud-top brightness temperature ${bt.toFixed(1)} deg C, decoded from GIBS colours, approximate`:'')}
 
 function buildLegend(){
 const stops=RAMP.map(([v,c])=>`${c} ${(v/25*100).toFixed(0)}%`).join(',');
@@ -63,15 +70,26 @@ $('legend').innerHTML=`<div class="lg-t">10 m wind speed, m/s</div><div class="l
 
 function updateTime(){
 const g=st.grid,el=$('tl-time');
+if(satOn()&&sc&&sc.time!=null){el.innerHTML=`<strong>${fmtTime(sc.time,st.tz)}</strong> <span>Observed, ${esc(sc.layer?sc.layer.name:'satellite')}; wind is model hour ${g?fmtTime(g.times[st.idx],st.tz):'(not loaded)'}</span>`;return}
 if(!g){el.textContent='Wind timeline not loaded';return}
 const t=g.times[st.idx],now=Date.now()/1000;
 const sub=g.run!=null?`+${Math.round((t-g.run)/3600)} h from ${fmtTime(g.run,st.tz)} run`:'run time not provided by source';
 el.innerHTML=`<strong>${fmtTime(t,st.tz)}</strong> <span>${t>now+1800?'Forecast':'Model value for a past hour'}; ${sub}</span>`}
 
-function setIdx(i:number){
+function windIdxFor(t:number){const g=st.grid;if(!g)return 0;let k=0,b=Infinity;for(let i=0;i<g.times.length;i++){const d=Math.abs(g.times[i]-t);if(d<b){b=d;k=i}}return k}
+function configSlider(){const s=$<HTMLInputElement>('slider');if(satOn()&&sc){s.max=String(sc.frames.length-1);s.value=String(sc.idx);s.disabled=false}else if(st.grid){s.max=String(st.grid.times.length-1);s.value=String(st.idx);s.disabled=false}else s.disabled=true}
+function setFrame(i:number){if(!sc)return;sc.setIdx(i);$<HTMLInputElement>('slider').value=String(sc.idx);if(st.grid&&sc.time!=null)setWindIdx(windIdxFor(sc.time));else updateTime()}
+function setIdx(i:number){if(satOn())setFrame(i);else setWindIdx(i)}
+function satChanged(){
+configSlider();
+if(satOn()&&sc&&sc.time!=null&&st.grid){const k=windIdxFor(sc.time);if(k!==st.idx)setWindIdx(k)}
+updateTime();
+const sig=satSig(sc);
+if(sig!==satSigV){satSigV=sig;renderLayers();renderDecoder()}else satDyn(sc,st.tz)}
+function setWindIdx(i:number){
 const g=st.grid;if(!g)return;
 st.idx=Math.max(0,Math.min(g.times.length-1,i));
-$<HTMLInputElement>('slider').value=String(st.idx);
+if(!satOn())$<HTMLInputElement>('slider').value=String(st.idx);
 applyWind();updateTime();updateConditions();updateChart();
 const v=$('dec-valid');if(v)v.textContent=fmtTime(g.times[st.idx],st.tz)}
 
@@ -82,15 +100,15 @@ setStatus(`Loading ${modelInfo().name} wind field`,'info');
 try{
 const g=await loadGrid(st.model,c.signal);
 if(c.signal.aborted)return;
-st.grid=g;const s=$<HTMLInputElement>('slider');s.max=String(g.times.length-1);s.disabled=false;
-setIdx(nowIdx(g));renderDecoder();renderSources();
+st.grid=g;configSlider();
+if(satOn()&&sc)setFrame(sc.idx);else setWindIdx(nowIdx(g));renderDecoder();renderSources();
 const age=Date.now()/1000-g.fetched;
 if(g.missing>0)setStatus(`${g.missing} of ${g.g.nx*g.g.ny} grid cells were missing from the provider. Wind is not drawn there.`,'warn');
 else if(age>6*3600)setStatus('Wind data is more than 6 hours old.','warn');
 else setStatus('','info')
 }catch{
 if(c.signal.aborted)return;
-st.grid=null;$<HTMLInputElement>('slider').disabled=true;applyWind();updateTime();renderDecoder();renderSources();
+st.grid=null;configSlider();applyWind();updateTime();renderDecoder();renderSources();
 setStatus('Wind field unavailable. The provider or proxy did not respond with valid data.','err',loadWind)}}
 
 function placeMarker(){
@@ -139,7 +157,7 @@ el.innerHTML=h;updateConditions();updateChart()}
 
 function renderDecoder(){
 const m=modelInfo(),g=st.grid;
-$('p-dec').innerHTML=`<h2>10 m wind field</h2><dl class="kv"><dt>Measures</dt><dd>Horizontal wind velocity 10 m above ground, computed by a numerical weather model</dd><dt>Units</dt><dd>Metres per second; knots shown in readouts</dd><dt>Product type</dt><dd>Model forecast, interpolated between grid points. Not an observation.</dd><dt>Model</dt><dd>${esc(m.name)} (${esc(m.org)}), ${esc(m.res)}</dd><dt>Run</dt><dd>${g?(g.run!=null?fmtTime(g.run,st.tz):'Not provided by source'):'No data loaded'}</dd><dt>Valid</dt><dd id="dec-valid">${g?fmtTime(g.times[st.idx],st.tz):'-'}</dd><dt>Delivered via</dt><dd>Open-Meteo API, fetched ${g?fmtTime(g.fetched,st.tz):'-'}</dd><dt>Field grid</dt><dd>${g?`${g.g.nx} by ${g.g.ny} points every ${g.g.d} deg, ${g.g.lon0}E to ${g.g.lon0+(g.g.nx-1)*g.g.d}E, ${g.g.lat0}N to ${g.g.lat0+(g.g.ny-1)*g.g.d}N`:'-'}</dd><dt>Level</dt><dd>10 m above ground (the only level in this build)</dd><dt>Colors</dt><dd>Particle color encodes speed on the legend scale. Particle length and trail follow direction.</dd></dl>
+$('p-dec').innerHTML=satDecoderHtml(sc,st.tz)+`<h2>10 m wind field</h2><dl class="kv"><dt>Measures</dt><dd>Horizontal wind velocity 10 m above ground, computed by a numerical weather model</dd><dt>Units</dt><dd>Metres per second; knots shown in readouts</dd><dt>Product type</dt><dd>Model forecast, interpolated between grid points. Not an observation.</dd><dt>Model</dt><dd>${esc(m.name)} (${esc(m.org)}), ${esc(m.res)}</dd><dt>Run</dt><dd>${g?(g.run!=null?fmtTime(g.run,st.tz):'Not provided by source'):'No data loaded'}</dd><dt>Valid</dt><dd id="dec-valid">${g?fmtTime(g.times[st.idx],st.tz):'-'}</dd><dt>Delivered via</dt><dd>Open-Meteo API, fetched ${g?fmtTime(g.fetched,st.tz):'-'}</dd><dt>Field grid</dt><dd>${g?`${g.g.nx} by ${g.g.ny} points every ${g.g.d} deg, ${g.g.lon0}E to ${g.g.lon0+(g.g.nx-1)*g.g.d}E, ${g.g.lat0}N to ${g.g.lat0+(g.g.ny-1)*g.g.d}N`:'-'}</dd><dt>Level</dt><dd>10 m above ground (the only level in this build)</dd><dt>Colors</dt><dd>Particle color encodes speed on the legend scale. Particle length and trail follow direction.</dd></dl>
 <details><summary>Method</summary><p>Each grid point supplies speed s and meteorological direction d (the direction the wind blows from). Components are u = -s sin(d) and v = -s cos(d), with u eastward and v northward. Each particle samples u and v by bilinear interpolation in longitude and latitude. If any of the four surrounding grid values is missing, the particle is removed instead of interpolating across the gap. Each frame a particle moves proportionally to its local speed in screen pixels, so apparent motion scales with wind speed but is not real-time displacement. Fields change in hourly steps with no temporal interpolation.</p></details>
 <h3>Limitations</h3><ul class="lim"><li>The field is sampled every 6 degrees, coarser than the model. Jets, tropical cyclone cores, sea breezes and terrain flows are smoothed or absent.</li><li>Forecast values at past hours are model output, not measurements.</li><li>Missing cells are left empty, never filled.</li><li>Observations, satellite, radar and derived fields are not in this build.</li></ul>`}
 
@@ -148,7 +166,7 @@ const stat=(k:string)=>{const h=health.get(k);if(!h)return'No request made yet';
 $('p-src').innerHTML=`<h2>Data sources</h2>`+SOURCES.map(s=>`<article class="src"><h3>${esc(s.name)}</h3><dl class="kv"><dt>Provides</dt><dd>${esc(s.what)}</dd><dt>Status</dt><dd class="${health.get(s.key)?.ok===false?'err':''}">${stat(s.key)}</dd><dt>License</dt><dd>${esc(s.license)}</dd><dt>Attribution</dt><dd>${esc(s.attribution)}</dd><dt>Coverage</dt><dd>${esc(s.coverage)}</dd><dt>Updates</dt><dd>${esc(s.update)}</dd></dl></article>`).join('')+`<article class="src"><h3>Models behind the forecasts</h3><dl class="kv">${MODELS.map(m=>`<dt>${esc(m.name)}</dt><dd>${esc(m.org)}; ${esc(m.res)}; ${esc(m.license)}</dd>`).join('')}</dl></article>`}
 
 function renderLayers(){
-$('p-lay').innerHTML=`<h2>Layers</h2><div class="ctl"><label><input type="checkbox" id="l-wind" ${st.windOn?'checked':''}> Wind particles, 10 m</label></div><div class="ctl"><label for="l-op">Wind opacity</label><input type="range" id="l-op" min="0.2" max="1" step="0.05" value="${st.opacity}"></div><div class="ctl"><label for="l-q">Particle density</label><select id="l-q"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div><div class="ctl"><label for="l-base">Base map</label><select id="l-base"><option value="light">Light</option><option value="standard">Standard</option></select></div><p class="note">Density defaults to Low on touch and low-core devices. Animation starts off when reduced motion is requested.</p>`;
+$('p-lay').innerHTML=`<h2>Layers</h2><div class="ctl"><label><input type="checkbox" id="l-wind" ${st.windOn?'checked':''}> Wind particles, 10 m</label></div><div class="ctl"><label for="l-op">Wind opacity</label><input type="range" id="l-op" min="0.2" max="1" step="0.05" value="${st.opacity}"></div><div class="ctl"><label for="l-q">Particle density</label><select id="l-q"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div><div class="ctl"><label for="l-base">Base map</label><select id="l-base"><option value="light">Light</option><option value="standard">Standard</option></select></div><p class="note">Density defaults to Low on touch and low-core devices. Animation starts off when reduced motion is requested.</p>`+satLayerControls(sc);
 $<HTMLSelectElement>('l-q').value=st.quality;$<HTMLSelectElement>('l-base').value=st.base;
 $('l-wind').addEventListener('change',e=>{st.windOn=(e.target as HTMLInputElement).checked;applyWind()});
 $('l-op').addEventListener('input',e=>{st.opacity=+(e.target as HTMLInputElement).value;wind?.setOpacity(st.opacity)});
@@ -160,8 +178,8 @@ function showTab(n:string){for(const t of TABS){const on=t===n;$(`t-${t}`).setAt
 function openSheet(o:boolean){$('panel').classList.toggle('open',o);$('sheetbtn').setAttribute('aria-expanded',String(o));$('sheetbtn').textContent=o?'Map':'Details';setTimeout(()=>{map?.resize()},50)}
 
 let ptimer=0;
-function stop(){st.playing=false;clearInterval(ptimer);$('play').innerHTML=PLAY;$('play').setAttribute('aria-label','Play timeline')}
-function play(){const g=st.grid;if(!g)return;st.playing=true;$('play').innerHTML=PAUSE;$('play').setAttribute('aria-label','Pause timeline');clearInterval(ptimer);ptimer=window.setInterval(()=>setIdx(st.idx>=g.times.length-1?0:st.idx+1),+$<HTMLSelectElement>('speed').value)}
+function stop(){st.playing=false;sc?.setPlaying(false);clearInterval(ptimer);$('play').innerHTML=PLAY;$('play').setAttribute('aria-label','Play timeline')}
+function play(){const n=()=>satOn()&&sc?sc.frames.length:st.grid?st.grid.times.length:0;if(!n())return;st.playing=true;sc?.setPlaying(true);$('play').innerHTML=PAUSE;$('play').setAttribute('aria-label','Pause timeline');clearInterval(ptimer);ptimer=window.setInterval(()=>{if(satOn()&&sc?.busy)return;const c=cur();setIdx(c>=n()-1?0:c+1)},+$<HTMLSelectElement>('speed').value)}
 
 function initUi(){
 $('play').innerHTML=PLAY;
@@ -170,11 +188,17 @@ $<HTMLSelectElement>('model').value=st.model;
 $('model').addEventListener('change',e=>{st.model=(e.target as HTMLSelectElement).value;store.set('asiawx.model',st.model);stop();loadWind();if(st.pin)loadLocation()});
 $('tz').addEventListener('click',()=>{st.tz=st.tz==='UTC'?'Local':'UTC';const b=$('tz');b.textContent=st.tz==='UTC'?'UTC':'Local';b.setAttribute('aria-label',`Time zone: ${b.textContent}. Activate to switch`);updateTime();renderDecoder();renderSources();if(st.pin)renderLocation(st.point?'ok':'loading')});
 $('play').addEventListener('click',()=>st.playing?stop():play());
-$('prev').addEventListener('click',()=>{stop();setIdx(st.idx-1)});
-$('next').addEventListener('click',()=>{stop();setIdx(st.idx+1)});
+$('prev').addEventListener('click',()=>{stop();setIdx(cur()-1)});
+$('next').addEventListener('click',()=>{stop();setIdx(cur()+1)});
 $('slider').addEventListener('input',e=>{stop();setIdx(+(e.target as HTMLInputElement).value)});
-$('now').addEventListener('click',()=>{stop();if(st.grid)setIdx(nowIdx(st.grid))});
+$('now').addEventListener('click',()=>{stop();if(satOn()&&sc)setFrame(sc.frames.length-1);else if(st.grid)setWindIdx(nowIdx(st.grid))});
 $('speed').addEventListener('change',()=>{if(st.playing)play()});
+$('p-lay').addEventListener('change',e=>{const t=e.target as HTMLInputElement;if(!sc)return;
+if(t.id==='l-sat'){stop();void sc.enable(t.checked).then(()=>{if(!sc?.on)t.checked=false;satChanged()})}
+else if(t.id==='l-sp'){stop();void sc.selectLayer(t.value)}});
+$('p-lay').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='l-so')sc?.setOpacity(+t.value)});
+$('p-dec').addEventListener('change',e=>{const t=e.target as HTMLSelectElement;if(!sc)return;if(t.id==='sd-view')sc.setView(t.value as View);else if(t.id==='sd-thr')sc.setThr(+t.value)});
+$('p-dec').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='sd-mix')sc?.setMix(+t.value)});
 $('sheetbtn').addEventListener('click',()=>openSheet(!$('panel').classList.contains('open')));
 $('full').addEventListener('click',()=>{if(!document.fullscreenEnabled){setStatus('Fullscreen is not supported in this browser.','warn');return}if(document.fullscreenElement)void document.exitFullscreen();else void document.documentElement.requestFullscreen().catch(()=>setStatus('Fullscreen was blocked.','warn'))});
 $('locate').addEventListener('click',()=>{

@@ -75,3 +75,8 @@ details{margin:10px 0;border-top:1px solid var(--line);padding-top:8px}summary{c
 }
 @media (max-width:760px) and (max-height:520px){#panel{height:78vh}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.sw{display:inline-block;width:12px;height:12px;vertical-align:-2px;margin-right:6px;border:1px solid var(--line)}
+hr.sp{border:0;border-top:1px solid var(--line);margin:14px 0}
+h2.gap{margin-top:16px}
+.lgp{margin:8px 0;font-size:12px}.lgp .lg-bar{height:10px}.lgp>div{margin-bottom:3px}
+.warn-t{color:var(--warn)}

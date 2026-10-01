@@ -4,7 +4,7 @@ Asia-focused weather analysis workstation. Phase 1 delivers a MapLibre map of As
 
 ## Status
 
-Built in phases. This repository contains Phase 1 only.
+Built in phases. This repository contains Phase 1 and Phase 2 (satellite imagery and the Cloud Decoder).
 
 | Area | Phase 1 |
 | --- | --- |
@@ -85,3 +85,19 @@ Model run time comes from Open-Meteo's model metadata when available and is othe
 ## Testing
 
 `npm run test` covers wind component conversion, bilinear sampling including missing-cell and out-of-bounds behaviour, grid and forecast validation, coordinate parsing, and time formatting. `npm run build` runs the TypeScript check first.
+
+## Phase 2: satellite and Cloud Decoder
+
+Turn on **Layers > Satellite > Himawari-9 imagery**. The timeline switches to observation times (10 minute frames, about 4 hours); the wind follows the nearest model hour.
+
+- `api/sat.ts` reads the NASA GIBS WMTS capabilities (EPSG:3857, best available) and returns, per layer, the tile matrix set, tile URL template and the latest frame times. Nothing about tile format or zoom is hard coded. Layers: Clean infrared Band 13, Visible red Band 3, Air Mass RGB.
+- `api/cmap.ts` relays the published GIBS colormap for the infrared layer.
+- Frames are shown with two alternating raster layers so the next frame is loaded before it replaces the current one.
+- **Cloud Decoder** (infrared only, `src/sat/decode.ts`, runs in a web worker): pixel colours are matched to the GIBS colormap and converted to brightness temperature. Views: enhanced infrared, cold cloud mask (threshold selectable), convective candidates, overshooting-top candidates (native zoom only), 30 minute cooling rate. Each view is labelled observed, enhanced, derived or interpretive. Raw versus decoded is an opacity crossfade; a true swipe is deferred.
+- Hovering shows the decoded cloud-top brightness temperature (approximate).
+- If the colormap is missing or has no readable temperature labels, the decoder says so and only raw imagery is shown. Nothing is guessed.
+
+### Not verified yet (the build container cannot reach NASA GIBS)
+Real imagery, the Band 13 tile matrix set and the visible-layer format are read at runtime and have only been tested against synthetic capabilities. Check on a device: raw tiles appear, CORS allows reading tiles for the decoder, and the colormap labels are temperatures. Candidate heuristics use fixed thresholds that are not validated.
+
+Acknowledgment (required by NASA GIBS): We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Observing System Data and Information System (EOSDIS).
