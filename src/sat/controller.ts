@@ -1,14 +1,16 @@
 import type maplibregl from 'maplibre-gl';
-import {fetchJson,health} from '../lib/http';
-import {buildTileUrl} from '../../api/_wmts';
+import {health} from '../lib/http';
+import {buildTileUrl,type TFmt} from '../../api/_wmts';
 import {parseColormap,type CMap} from './colormap';
 import {run,type DecodeIn,type Stats,type View} from './decode';
-export interface SatLayer{key:string;id:string;name:string;kind:'ir'|'vis'|'rgb';tms:string;maxzoom:number;format:string;template:string;times:number[];step:number}
-interface Catalog{source:string;layers:SatLayer[];missing:string[];fetched:number}
+export interface SatLayer{key:string;id:string;name:string;kind:'ir'|'vis'|'rgb';tms:string;maxzoom:number;format:string;template:string;times:number[];step:number;provider:string;tfmt:TFmt;attribution:string;decode:boolean}
+export interface ProviderStatus{id:string;name:string;ok:boolean;msg:string}
+interface Catalog{source:string;layers:SatLayer[];providers:ProviderStatus[];fetched:number}
 export interface Hooks{change:()=>void;status:(m:string,k:'info'|'warn'|'err',retry?:()=>void)=>void}
 export interface TileRng{z:number;x0:number;y0:number;x1:number;y1:number}
 export interface Meta{z:number;x0:number;y0:number;w:number;h:number;native:boolean;time:number;view:View;stats:Stats;prevOk:boolean}
-const ATTR='Imagery: NASA GIBS/ESDIS, JMA Himawari-9';
+const abs=(u:string)=>u.startsWith('/')?location.origin+u:u;
+export const tileUrl=(L:{template:string;tfmt:TFmt},t:number)=>abs(buildTileUrl(L.template,t,L.tfmt));
 const TS=256,HIDE=0.001,COOL_STEP=1800;
 export const lonToX=(lon:number,z:number)=>(lon+180)/360*2**z;
 export const latToY=(lat:number,z:number)=>{const r=Math.max(-85.0511,Math.min(85.0511,lat))*Math.PI/180;return(1-Math.asinh(Math.tan(r))/Math.PI)/2*2**z};
@@ -35,8 +37,8 @@ map.on('moveend',()=>this.scheduleDecode());
 map.on('error',e=>{
 const sid=String((e as unknown as {sourceId?:string}).sourceId??'');
 if(!sid.startsWith('sat-'))return;
-this.errs++;const p=health.get('gibs');
-health.set('gibs',{ok:false,lastOk:p?.lastOk??null,err:String(e.error?.message??'tile error'),ms:null})})}
+this.errs++;const hk=this.layer?.provider??'gibs',p=health.get(hk);
+health.set(hk,{ok:false,lastOk:p?.lastOk??null,err:String(e.error?.message??'tile error'),ms:null})})}
 get layer():SatLayer|null{return this.catalog?.layers.find(l=>l.key===this.key)??null}
 get time():number|null{return this.frames[this.idx]??null}
 get ready(){return this.on&&this.frames.length>0}
@@ -50,13 +52,15 @@ this.h.change()}
 async loadCatalog(){
 this.loading=true;this.h.status('Loading satellite catalog','info');this.h.change();
 try{
-const c=await fetchJson<Catalog>('sat','/api/sat',{timeout:45000,retries:1});
-if(!c?.layers?.length)throw new Error('empty catalog');
-this.catalog=c;this.h.status('','info');
-if(!this.layer)this.key=c.layers[0].key;
+const t0=performance.now(),r=await fetch('/api/sat',{signal:AbortSignal.timeout(45000)}),j=await r.json().catch(()=>null) as (Catalog&{error?:string;diag?:string[]})|null;
+if(!r.ok||!j?.layers?.length)throw new Error(j?.diag?.join(' | ')||j?.error||`HTTP ${r.status}`);
+health.set('sat',{ok:true,lastOk:Date.now(),err:null,ms:Math.round(performance.now()-t0)});
+this.catalog=j;this.h.status('','info');
+if(!this.layer)this.key=(j.layers.find(l=>l.key==='ir')??j.layers[0]).key;
 await this.selectLayer(this.key)
-}catch{
-this.on=false;this.h.status('Satellite catalog unavailable. NASA GIBS or the proxy did not respond with a usable layer list.','err',()=>void this.enable(true))}
+}catch(e){
+const p=health.get('sat');health.set('sat',{ok:false,lastOk:p?.lastOk??null,err:e instanceof Error?e.message:'failed',ms:null});
+this.on=false;this.h.status(`Satellite catalog unavailable: ${e instanceof Error?e.message:'unknown error'}`,'err',()=>void this.enable(true))}
 finally{this.loading=false;this.h.change()}}
 async selectLayer(key:string){
 this.key=key;
@@ -65,24 +69,24 @@ this.tok++;this.removeAll();this.meta=null;this.bt=null;
 const L=this.layer;if(!L){this.frames=[];return}
 this.frames=L.times.slice();this.idx=this.frames.length-1;
 await this.probe(L);
-if(L.kind==='ir')void this.ensureCmap();
+if(L.decode)void this.ensureCmap();
 this.dstat='';
 await this.show();this.h.change()}
+provName(L:SatLayer|null){return this.catalog?.providers.find(p=>p.id===L?.provider)?.name??'Satellite'}
 private async probe(L:SatLayer){
-if(L.kind==='vis')return;
 try{
 for(let k=0;k<3&&this.frames.length>3;k++){
-const u=buildTileUrl(L.template,this.frames[this.frames.length-1]).replace('{z}','3').replace('{y}','3').replace('{x}','6');
+const u=tileUrl(L,this.frames[this.frames.length-1]).replace('{z}','3').replace('{y}','3').replace('{x}','6');
 const r=await fetch(u);
 if(!r.ok){this.frames.pop();continue}
 const b=await r.blob();
-if(b.size>1500)break;
+if(L.kind==='vis'||b.size>=1200)break;
 this.frames.pop()}
-}catch{}
+}catch{this.h.status(`${this.provName(L)} imagery could not be fetched by the browser. It may be blocked (CORS) or offline.`,'err')}
 this.idx=this.frames.length-1}
 async ensureCmap(){
 const L=this.layer;
-if(!L||L.kind!=='ir'||this.cmapState==='ok'||this.cmapState==='loading')return;
+if(!L||!L.decode||this.cmapState==='ok'||this.cmapState==='loading')return;
 this.cmapState='loading';this.h.change();
 try{
 const r=await fetch(`/api/cmap?layer=${encodeURIComponent(L.id)}`);
@@ -132,10 +136,10 @@ if(this.map.getSource(id)&&this.map.isSourceLoaded(id))done()})}
 async show(){
 const L=this.layer,t=this.time,m=this.map;
 if(!this.on||!L||t==null||!m.getStyle())return;
-const tok=++this.tok,id=this.front==='sat-a'?'sat-b':'sat-a',url=buildTileUrl(L.template,t);
+const tok=++this.tok,id=this.front==='sat-a'?'sat-b':'sat-a',url=tileUrl(L,t);
 this.busy=true;this.errs=0;
 this.removeBuf(id);
-m.addSource(id,{type:'raster',tiles:[url],tileSize:TS,maxzoom:L.maxzoom,attribution:ATTR});
+m.addSource(id,{type:'raster',tiles:[url],tileSize:TS,maxzoom:L.maxzoom,attribution:L.attribution});
 m.addLayer({id,type:'raster',source:id,paint:{'raster-opacity':HIDE,'raster-fade-duration':0,'raster-resampling':'linear'}},this.before());
 const t0=performance.now();
 await this.loaded(id,7000);
@@ -144,7 +148,7 @@ const old=this.front;this.front=id;this.busy=false;
 this.applyOpacity();
 if(old)this.removeBuf(old);
 if(this.errs>0)this.h.status('Some satellite tiles were not returned for this time. They may be outside Himawari coverage or not yet published.','warn');
-else{health.set('gibs',{ok:true,lastOk:Date.now(),err:null,ms:Math.round(performance.now()-t0)});this.h.status('','info')}
+else{health.set(L.provider,{ok:true,lastOk:Date.now(),err:null,ms:Math.round(performance.now()-t0)});this.h.status('','info')}
 this.h.change();this.scheduleDecode()}
 scheduleDecode(){
 clearTimeout(this.dtimer);
@@ -163,7 +167,7 @@ const w=(r.x1-r.x0+1)*TS,h=(r.y1-r.y0+1)*TS,cv=document.createElement('canvas');
 cv.width=w;cv.height=h;
 const ctx=cv.getContext('2d',{willReadFrequently:true}) as CanvasRenderingContext2D;
 ctx.imageSmoothingEnabled=false;
-const base=buildTileUrl(L.template,time),jobs:Promise<void>[]=[];
+const base=tileUrl(L,time),jobs:Promise<void>[]=[];
 let next=0;const cells:[number,number][]=[];
 for(let y=r.y0;y<=r.y1;y++)for(let x=r.x0;x<=r.x1;x++)cells.push([x,y]);
 const lane=async()=>{
@@ -190,7 +194,7 @@ this.pending.set(id,r=>r.ok?res(r):rej(new Error(r.error)));
 w.postMessage({id,job})}).catch(()=>local()) as Promise<{out:Uint8ClampedArray;bt:Float32Array;stats:Stats}>}
 async decode(){
 const L=this.layer,t=this.time;
-if(!this.on||!L||t==null||this.playing||this.busy||L.kind!=='ir')return;
+if(!this.on||!L||t==null||this.playing||this.busy||!L.decode)return;
 if(this.cmapState==='idle'){await this.ensureCmap();return}
 if(!this.cmapOk)return;
 const tok=++this.dtok,map=this.map,b=map.getBounds();

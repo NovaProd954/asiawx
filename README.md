@@ -101,3 +101,10 @@ Turn on **Layers > Satellite > Himawari-9 imagery**. The timeline switches to ob
 Real imagery, the Band 13 tile matrix set and the visible-layer format are read at runtime and have only been tested against synthetic capabilities. Check on a device: raw tiles appear, CORS allows reading tiles for the decoder, and the colormap labels are temperatures. Candidate heuristics use fixed thresholds that are not validated.
 
 Acknowledgment (required by NASA GIBS): We acknowledge the use of imagery provided by services from NASA's Global Imagery Browse Services (GIBS), part of NASA's Earth Observing System Data and Information System (EOSDIS).
+
+### Satellite providers (Phase 2.1)
+`/api/sat` now builds the catalog from three independent providers, so one failing no longer disables the layer. A failed provider is listed with its reason under Layers > Satellite.
+- **NASA GIBS**: Himawari-9 Clean IR, Visible and Air Mass. The catalog no longer depends on parsing the capabilities file: layers are also discovered by probing real tiles (Level6 PNG, then JPEG), and capabilities are used only when they parse. Also daily VIIRS and MODIS true colour (Level9 JPEG, last 7 days).
+- **JMA Himawari-9**: Band 13 IR, Band 8 water vapour and true colour from the JMA real-time tiles. Tiles are relayed through the `/p/jma` rewrite in `vercel.json` so the browser can load them.
+- **SSEC RealEarth**: hourly global IR and visible composites, including western Asia outside the Himawari disk. Loaded directly from the browser, so it needs CORS to be allowed.
+Only the NASA GIBS Clean IR layer feeds the Cloud Decoder. Tile layout for JMA and RealEarth was written from their public conventions and has not been tested against the live services.

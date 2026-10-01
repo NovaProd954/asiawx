@@ -1,5 +1,6 @@
 export interface LayerDef{key:string;id:string;name:string;kind:'ir'|'vis'|'rgb'}
-export interface LayerInfo{key:string;id:string;name:string;kind:string;tms:string;maxzoom:number;format:string;template:string;times:number[];step:number}
+export type TFmt='iso'|'date'|'jma'|'re';
+export interface LayerInfo{key:string;id:string;name:string;kind:string;tms:string;maxzoom:number;format:string;template:string;times:number[];step:number;provider?:string;tfmt?:TFmt;attribution?:string;decode?:boolean}
 export const LAYERS:LayerDef[]=[
 {key:'ir',id:'Himawari_AHI_Band13_Clean_Infrared',name:'Clean infrared, Band 13 (10.4 um)',kind:'ir'},
 {key:'vis',id:'Himawari_AHI_Band3_Red_Visible_1km',name:'Visible red, Band 3 (0.64 um)',kind:'vis'},
@@ -51,6 +52,21 @@ const {times,step}=latestFrames(values,n);
 if(!times.length)return null;
 const lv=/Level(\d+)/.exec(tms);
 return{key:def.key,id:def.id,name:def.name,kind:def.kind,tms,maxzoom:lv?+lv[1]:6,format,template:template.replace('{TileMatrixSet}',tms),times,step}}
-export function buildTileUrl(template:string,time:number):string{
-const iso=new Date(time*1000).toISOString().replace(/\.\d{3}Z$/,'Z');
-return template.replace(/\{Time\}/gi,iso).replace('{TileMatrix}','{z}').replace('{TileRow}','{y}').replace('{TileCol}','{x}')}
+const p2=(n:number)=>String(n).padStart(2,'0');
+export function fmtTime(time:number,f:TFmt='iso'):string{
+const d=new Date(time*1000),Y=d.getUTCFullYear(),M=p2(d.getUTCMonth()+1),D=p2(d.getUTCDate()),h=p2(d.getUTCHours()),m=p2(d.getUTCMinutes()),s=p2(d.getUTCSeconds());
+if(f==='date')return`${Y}-${M}-${D}`;
+if(f==='jma')return`${Y}${M}${D}${h}${m}${s}`;
+if(f==='re')return`${Y}${M}${D}/${h}${m}${s}`;
+return`${Y}-${M}-${D}T${h}:${m}:${s}Z`}
+export function buildTileUrl(template:string,time:number,f:TFmt='iso'):string{
+return template.replace(/\{Time\}/gi,fmtTime(time,f)).replace('{TileMatrix}','{z}').replace('{TileRow}','{y}').replace('{TileCol}','{x}')}
+export function findIds(xml:string):string[]{
+const out=new Set<string>();
+for(const m of xml.matchAll(/<ows:Identifier>(Himawari[^<]*)<\/ows:Identifier>/g))out.add(m[1].trim());
+return[...out]}
+export function resolveDef(def:LayerDef,ids:string[]):LayerDef{
+if(ids.includes(def.id))return def;
+const pick=(re:RegExp,pref?:RegExp)=>{const c=ids.filter(i=>re.test(i));return(pref&&c.find(i=>pref.test(i)))||c[0]};
+const f=def.kind==='ir'?pick(/Band13/i,/Clean/i):def.kind==='vis'?pick(/Band0?3/i,/Visible|Red/i):pick(/Air_?Mass/i);
+return f?{...def,id:f}:def}

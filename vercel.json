@@ -1,0 +1,1 @@
+{"rewrites":[{"source":"/p/jma/:path*","destination":"https://www.jma.go.jp/:path*"}]}
