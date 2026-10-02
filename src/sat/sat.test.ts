@@ -22,6 +22,14 @@ expect(f(k[0]+2,k[1],k[2])).toBeCloseTo(temps[3]);
 expect(f(250,250,250)).toBeNaN()});
 });
 const px=(bts:number[])=>{const a=new Uint8ClampedArray(bts.length*4);bts.forEach((t,i)=>{if(t!==t){a[i*4+3]=0;return}const k=col(temps.indexOf(t));a.set([k[0],k[1],k[2],255],i*4)});return a};
+const real=`<ColorMaps><ColorMap title="Infrared Brightness Temperature" units="\u00b0C"><Entries>${[-92.1,-91.1,-90.1,-89.1,-88.1,-87.1,-86.1,-85.1,-84.1,-83.1].map((a,i)=>`<ColorMapEntry rgb="${10+i},${20+i},${30+i}" transparent="false" sourceValue="(${a},${(a+1).toFixed(1)}]" value="(${a},${(a+1).toFixed(1)}]" ref="${i}"/>`).join('')}<ColorMapEntry rgb="1,1,1" transparent="false" value="(56.9,+INF)" ref="161"/></Entries></ColorMap><ColorMap title="No Data"><Entries><ColorMapEntry rgb="0,0,0" transparent="true" nodata="true" ref="162"/></Entries></ColorMap></ColorMaps>`;
+describe('real GIBS colormap format',()=>{
+const c=parseColormap(real);
+it('reads interval midpoints with units from the ColorMap element',()=>{expect(c.n).toBe(10);expect(c.bt[0]).toBeCloseTo(-91.6,1);expect(c.usable).toBe(true)});
+it('skips open-ended and no-data entries',()=>{expect(c.total).toBe(11);expect(Array.from(c.bt).every(v=>v<0)).toBe(true)});
+it('converts Kelvin ranges',()=>{const k=parseColormap(real.replace('units="\u00b0C"','units="K"').replace(/\(-(\d+)\.\d,-(\d+)\.\d\]/g,'(200,201]'));expect(k.bt[0]).toBeCloseTo(200.5-273.15,1)});
+it('ignores ranges when no unit is given',()=>{expect(parseColormap(real.replace(' units="\u00b0C"','')).usable).toBe(false)});
+});
 const cm=parseColormap(xml);
 const job=(bts:number[],w:number,view:View,o:{prev?:number[];thr?:number;native?:boolean}={})=>run({w,h:bts.length/w,cur:px(bts),prev:o.prev?px(o.prev):null,view,thr:o.thr??-52,native:o.native??true,rgb:cm.rgb,btv:cm.bt});
 describe('decoder',()=>{

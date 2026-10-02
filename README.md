@@ -108,3 +108,6 @@ Acknowledgment (required by NASA GIBS): We acknowledge the use of imagery provid
 - **JMA Himawari-9**: Band 13 IR, Band 8 water vapour and true colour from the JMA real-time tiles. Tiles are relayed through the `/p/jma` rewrite in `vercel.json` so the browser can load them.
 - **SSEC RealEarth**: hourly global IR and visible composites, including western Asia outside the Himawari disk. Loaded directly from the browser, so it needs CORS to be allowed.
 Only the NASA GIBS Clean IR layer feeds the Cloud Decoder. Tile layout for JMA and RealEarth was written from their public conventions and has not been tested against the live services.
+
+### Colormap fix (Phase 2.2)
+The GIBS colormap for Himawari Clean IR is `Clean_Longwave_Infrared_Window_Band.xml` (the layer id has no file of its own, which caused the 404). `/api/cmap` now tries that name first. Its entries carry temperature as intervals such as `(-92.1,-91.1]` with units on the parent `ColorMap`, so the parser reads interval midpoints when there is no `label`. The assumption that the Himawari layer is rendered with this colormap is checked at run time: if many pixel colours do not match, the Decoder says temperatures may be unreliable.

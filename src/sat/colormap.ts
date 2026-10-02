@@ -7,15 +7,20 @@ if(!m)return null;
 const a=parseFloat(m[1]),b=m[2]!=null?parseFloat(m[2]):a,v=(a+b)/2;
 const c=m[3].toUpperCase()==='K'?v-273.15:v;
 return Number.isFinite(c)&&c>-150&&c<80?c:null}
+const IV=/^[\(\[]\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*[\)\]]$/;
+const unitOf=(u:string):'C'|'K'|null=>/^\s*\u00b0?\s*K\s*$/i.test(u)?'K':/C/i.test(u)?'C':null;
 export function parseColormap(xml:string):CMap{
 const rgb:number[]=[],bt:number[]=[];let total=0;
-for(const m of xml.matchAll(/<ColorMapEntry\s+([^>]*?)\/?>/g)){
+const blocks=[...xml.matchAll(/<ColorMap\b([^>]*)>([\s\S]*?)<\/ColorMap>/g)];
+const parts=blocks.length?blocks.map(b=>({u:unitOf(/units="([^"]*)"/.exec(b[1])?.[1]??''),body:b[2]})):[{u:null as 'C'|'K'|null,body:xml}];
+for(const part of parts)for(const m of part.body.matchAll(/<ColorMapEntry\s+([^>]*?)\/?>/g)){
 const a:Record<string,string>={};for(const x of m[1].matchAll(/([\w:]+)="([^"]*)"/g))a[x[1]]=x[2];
 if(a.transparent==='true')continue;
 const c=(a.rgb||'').split(',').map(Number);
 if(c.length!==3||c.some(x=>!Number.isFinite(x)))continue;
 total++;
-const v=parseBT(a.label||'');
+let v=parseBT(a.label||'');
+if(v==null&&part.u){const iv=IV.exec((a.value||'').trim());if(iv){const mid=(parseFloat(iv[1])+parseFloat(iv[2]))/2,t=part.u==='K'?mid-273.15:mid;if(Number.isFinite(t)&&t>-150&&t<80)v=t}}
 if(v==null)continue;
 rgb.push(c[0],c[1],c[2]);bt.push(v)}
 const n=bt.length;
