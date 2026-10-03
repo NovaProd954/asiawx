@@ -14,6 +14,8 @@ import {SatController} from './sat/controller';
 import {registerSW} from './sat/store';
 import {satLayerControls,satDecoderHtml,satDyn,satSig} from './sat/ui';
 import type {View} from './sat/decode';
+import {TcController} from './tc/controller';
+import {tcLayerControls,tcPanel,tcSig} from './tc/ui';
 
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] as string));
@@ -31,6 +33,11 @@ let map:maplibregl.Map|null=null,wind:WindLayer|null=null,marker:maplibregl.Mark
 const satOn=()=>!!(sc&&sc.ready);
 const cur=()=>satOn()&&sc?sc.idx:st.idx;
 const tmp=new Float32Array(2);
+const tc=new TcController({change:tcChanged,open:openTc,tz:()=>st.tz});
+tc.on=store.get('asiawx.tc')!=='off';
+try{Object.assign(tc.opts,JSON.parse(store.get('asiawx.tco')||'{}'))}catch{}
+let tcSigV='';
+const tlTime=()=>satOn()&&sc&&sc.time!=null?sc.time:curT();
 
 function setStatus(msg:string,kind:'info'|'warn'|'err',retry?:()=>void){
 const el=$('status');el.className=msg?kind:'';el.textContent=msg;
@@ -50,10 +57,10 @@ map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-right')
 map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'top-left');
 map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-right');
 wind=new WindLayer(map,$<HTMLCanvasElement>('wind'));wind.setQuality(st.quality);wind.setOpacity(st.opacity);
-sc=new SatController(map,{change:satChanged,status:setStatus});renderLayers();
+sc=new SatController(map,{change:satChanged,status:setStatus});tc.attach(map);renderLayers();
 map.on('load',()=>health.set('basemap',{ok:true,lastOk:Date.now(),err:null,ms:null}));
 map.on('error',e=>{if(String((e as unknown as {sourceId?:string}).sourceId??'').startsWith('sat-'))return;const p=health.get('basemap');health.set('basemap',{ok:false,lastOk:p?.lastOk??null,err:String(e.error?.message??'tile or style error'),ms:null})});
-map.on('click',e=>selectPoint({lat:e.lngLat.lat,lon:e.lngLat.lng,name:coordName(e.lngLat.lat,e.lngLat.lng)}));
+map.on('click',e=>{if(tc.hit(e.point))return;void selectPoint({lat:e.lngLat.lat,lon:e.lngLat.lng,name:coordName(e.lngLat.lat,e.lngLat.lng)})});
 let pend=false;
 map.on('mousemove',e=>{if(pend)return;pend=true;requestAnimationFrame(()=>{pend=false;readout(e.lngLat.lat,e.lngLat.lng)})});
 }catch{setStatus('The map could not start on this device. Search and forecasts still work.','err');map=null;wind=null}}
@@ -70,6 +77,7 @@ const stops=RAMP.map(([v,c])=>`${c} ${(v/25*100).toFixed(0)}%`).join(',');
 $('legend').innerHTML=`<div class="lg-t">10 m wind speed, m/s</div><div class="lg-bar" style="background:linear-gradient(to right,${stops})"></div><div class="lg-ticks"><span>0</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25+</span></div>`}
 
 function updateTime(){
+tc.setTime(tlTime());
 const g=st.grid,el=$('tl-time');
 if(satOn()&&sc&&sc.time!=null){el.innerHTML=`<strong>${fmtTime(sc.time,st.tz)}</strong> <span>Observed, ${esc(sc.layer?sc.layer.name:'satellite')}; wind is model hour ${g?fmtTime(g.times[st.idx],st.tz):'(not loaded)'}</span>`;return}
 if(!g){el.textContent='Wind timeline not loaded';return}
@@ -120,7 +128,7 @@ else marker.setLngLat([st.pin.lon,st.pin.lat])}
 let pctl:AbortController|null=null;
 async function selectPoint(p:Pin){
 if(!inAsia(p.lat,p.lon)){setStatus('That point is outside the Asian domain (25E to 180E, 12S to 80N).','warn');return}
-st.pin=p;placeMarker();showTab('loc');if(mobile())openSheet(true);
+st.pin=p;placeMarker();renderTc();showTab('loc');if(mobile())openSheet(true);
 await loadLocation()}
 async function loadLocation(){
 const p=st.pin;if(!p)return;
@@ -166,16 +174,19 @@ function renderSources(){
 const stat=(k:string)=>{const h=health.get(k);if(!h)return'No request made yet';if(h.ok)return`Responding${h.ms!=null?`, ${h.ms} ms`:''}${h.lastOk?`, last success ${fmtTime(h.lastOk/1000,st.tz)}`:''}`;return`Failing: ${esc(h.err??'unknown error')}${h.lastOk?`, last success ${fmtTime(h.lastOk/1000,st.tz)}`:''}`};
 $('p-src').innerHTML=`<h2>Data sources</h2>`+SOURCES.map(s=>`<article class="src"><h3>${esc(s.name)}</h3><dl class="kv"><dt>Provides</dt><dd>${esc(s.what)}</dd><dt>Status</dt><dd class="${health.get(s.key)?.ok===false?'err':''}">${stat(s.key)}</dd><dt>License</dt><dd>${esc(s.license)}</dd><dt>Attribution</dt><dd>${esc(s.attribution)}</dd><dt>Coverage</dt><dd>${esc(s.coverage)}</dd><dt>Updates</dt><dd>${esc(s.update)}</dd></dl></article>`).join('')+`<article class="src"><h3>Models behind the forecasts</h3><dl class="kv">${MODELS.map(m=>`<dt>${esc(m.name)}</dt><dd>${esc(m.org)}; ${esc(m.res)}; ${esc(m.license)}</dd>`).join('')}</dl></article>`}
 
+function renderTc(){if($('p-tc').hidden)return;$('p-tc').innerHTML=tcPanel(tc,st.tz,st.pin)}
+function tcChanged(){const g=tcSig(tc);if(g!==tcSigV){tcSigV=g;renderLayers()}if(!$('p-tc').hidden)renderTc();if(!$('p-src').hidden)renderSources()}
+function openTc(){showTab('tc');if(mobile())openSheet(true)}
 function renderLayers(){
-$('p-lay').innerHTML=`<h2>Layers</h2><div class="ctl"><label><input type="checkbox" id="l-wind" ${st.windOn?'checked':''}> Wind particles, 10 m</label></div><div class="ctl"><label for="l-op">Wind opacity</label><input type="range" id="l-op" min="0.2" max="1" step="0.05" value="${st.opacity}"></div><div class="ctl"><label for="l-q">Particle density</label><select id="l-q"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div><div class="ctl"><label for="l-base">Base map</label><select id="l-base"><option value="light">Light</option><option value="standard">Standard</option></select></div><p class="note">Density defaults to Low on touch and low-core devices. Animation starts off when reduced motion is requested.</p>`+satLayerControls(sc);
+$('p-lay').innerHTML=`<h2>Layers</h2><div class="ctl"><label><input type="checkbox" id="l-wind" ${st.windOn?'checked':''}> Wind particles, 10 m</label></div><div class="ctl"><label for="l-op">Wind opacity</label><input type="range" id="l-op" min="0.2" max="1" step="0.05" value="${st.opacity}"></div><div class="ctl"><label for="l-q">Particle density</label><select id="l-q"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div><div class="ctl"><label for="l-base">Base map</label><select id="l-base"><option value="light">Light</option><option value="standard">Standard</option></select></div><p class="note">Density defaults to Low on touch and low-core devices. Animation starts off when reduced motion is requested.</p>`+satLayerControls(sc)+tcLayerControls(tc);
 $<HTMLSelectElement>('l-q').value=st.quality;$<HTMLSelectElement>('l-base').value=st.base;
 $('l-wind').addEventListener('change',e=>{st.windOn=(e.target as HTMLInputElement).checked;applyWind()});
 $('l-op').addEventListener('input',e=>{st.opacity=+(e.target as HTMLInputElement).value;wind?.setOpacity(st.opacity)});
 $('l-q').addEventListener('change',e=>{st.quality=(e.target as HTMLSelectElement).value as Quality;wind?.setQuality(st.quality)});
 $('l-base').addEventListener('change',e=>{st.base=(e.target as HTMLSelectElement).value;map?.setStyle(STYLES[st.base])})}
 
-const TABS=['loc','lay','dec','src'];
-function showTab(n:string){for(const t of TABS){const on=t===n;$(`t-${t}`).setAttribute('aria-selected',String(on));$(`t-${t}`).tabIndex=on?0:-1;$(`p-${t}`).hidden=!on}if(n==='src')renderSources()}
+const TABS=['loc','lay','tc','dec','src'];
+function showTab(n:string){for(const t of TABS){const on=t===n;$(`t-${t}`).setAttribute('aria-selected',String(on));$(`t-${t}`).tabIndex=on?0:-1;$(`p-${t}`).hidden=!on}if(n==='src')renderSources();if(n==='tc')renderTc()}
 function openSheet(o:boolean){$('panel').classList.toggle('open',o);$('sheetbtn').setAttribute('aria-expanded',String(o));$('sheetbtn').textContent=o?'Map':'Details';setTimeout(()=>{map?.resize()},50)}
 
 let ptimer=0;
@@ -187,14 +198,17 @@ $('play').innerHTML=PLAY;
 $<HTMLSelectElement>('model').innerHTML=MODELS.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
 $<HTMLSelectElement>('model').value=st.model;
 $('model').addEventListener('change',e=>{st.model=(e.target as HTMLSelectElement).value;store.set('asiawx.model',st.model);stop();loadWind();if(st.pin)loadLocation()});
-$('tz').addEventListener('click',()=>{st.tz=st.tz==='UTC'?'Local':'UTC';const b=$('tz');b.textContent=st.tz==='UTC'?'UTC':'Local';b.setAttribute('aria-label',`Time zone: ${b.textContent}. Activate to switch`);updateTime();renderDecoder();renderSources();if(st.pin)renderLocation(st.point?'ok':'loading')});
+$('tz').addEventListener('click',()=>{st.tz=st.tz==='UTC'?'Local':'UTC';const b=$('tz');b.textContent=st.tz==='UTC'?'UTC':'Local';b.setAttribute('aria-label',`Time zone: ${b.textContent}. Activate to switch`);updateTime();renderDecoder();renderSources();renderTc();if(st.pin)renderLocation(st.point?'ok':'loading')});
 $('play').addEventListener('click',()=>st.playing?stop():play());
 $('prev').addEventListener('click',()=>{stop();setIdx(cur()-1)});
 $('next').addEventListener('click',()=>{stop();setIdx(cur()+1)});
 $('slider').addEventListener('input',e=>{stop();setIdx(+(e.target as HTMLInputElement).value)});
 $('now').addEventListener('click',()=>{stop();if(satOn()&&sc)setFrame(sc.frames.length-1);else if(st.grid)setWindIdx(nowIdx(st.grid))});
 $('speed').addEventListener('change',()=>{if(st.playing)play()});
-$('p-lay').addEventListener('change',e=>{const t=e.target as HTMLInputElement;if(!sc)return;
+$('p-lay').addEventListener('change',e=>{const t=e.target as HTMLInputElement;
+if(t.id==='l-tc'){store.set('asiawx.tc',t.checked?'on':'off');void tc.enable(t.checked)}
+else if(t.id==='l-tcp'||t.id==='l-tcw'||t.id==='l-tcpast'){tc.setOpts({prob:t.id==='l-tcp'?t.checked:tc.opts.prob,warn:t.id==='l-tcw'?t.checked:tc.opts.warn,past:t.id==='l-tcpast'?t.checked:tc.opts.past});store.set('asiawx.tco',JSON.stringify(tc.opts))}
+if(!sc)return;
 if(t.id==='l-sat'){stop();void sc.enable(t.checked).then(()=>{if(!sc?.on)t.checked=false;satChanged()})}
 else if(t.id==='l-sp'){stop();void sc.selectLayer(t.value)}
 else if(t.id==='l-sb')sc.setBorders(t.checked)});
@@ -203,6 +217,8 @@ $('p-lay').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(
 $('p-dec').addEventListener('change',e=>{const t=e.target as HTMLSelectElement;if(!sc)return;if(t.id==='sd-view')sc.setView(t.value as View);else if(t.id==='sd-thr')sc.setThr(+t.value);else if(t.id==='sd-sm')sc.setSmooth(+t.value);else if(t.id==='sd-cov')sc.setCov(t.value as 'fast'|'fine')});
 $('p-dec').addEventListener('click',e=>{const t=(e.target as HTMLElement).closest('button');if(t?.id==='sd-recal')void sc?.recalibrate()});
 $('p-dec').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='sd-mix')sc?.setMix(+t.value)});
+$('p-tc').addEventListener('click',e=>{const b=(e.target as HTMLElement).closest('[data-act]') as HTMLElement|null;if(!b)return;const a=b.dataset.act,id=b.dataset.id??'';
+if(a==='sel'){tc.select(id);tc.fly(id)}else if(a==='fly'){tc.fly(id);if(mobile())openSheet(false)}else if(a==='flyg'){tc.fly(id);if(mobile())openSheet(false)}else if(a==='refresh')void tc.load()});
 $('sheetbtn').addEventListener('click',()=>openSheet(!$('panel').classList.contains('open')));
 $('full').addEventListener('click',()=>{if(!document.fullscreenEnabled){setStatus('Fullscreen is not supported in this browser.','warn');return}if(document.fullscreenElement)void document.exitFullscreen();else void document.documentElement.requestFullscreen().catch(()=>setStatus('Fullscreen was blocked.','warn'))});
 $('locate').addEventListener('click',()=>{
@@ -234,4 +250,4 @@ else if(e.key==='Enter'){const c=parseCoord(q.value.trim());if(c)choose(c);else 
 ul.addEventListener('pointerdown',e=>{const li=(e.target as HTMLElement).closest('li[data-i]') as HTMLElement|null;if(li){e.preventDefault();choose(items[+(li.dataset.i as string)])}});
 document.addEventListener('pointerdown',e=>{if(!(e.target as HTMLElement).closest('.search'))close()})}
 
-registerSW();initUi();buildLegend();renderLayers();renderLocation('ok');renderDecoder();renderSources();showTab('loc');initMap();updateTime();applyWind();void loadWind();
+registerSW();initUi();buildLegend();renderLayers();renderLocation('ok');renderDecoder();renderSources();showTab('loc');initMap();tc.start();updateTime();applyWind();void loadWind();

@@ -80,3 +80,12 @@ hr.sp{border:0;border-top:1px solid var(--line);margin:14px 0}
 h2.gap{margin-top:16px}
 .lgp{margin:8px 0;font-size:12px}.lgp .lg-bar{height:10px}.lgp>div{margin-bottom:3px}
 .warn-t{color:var(--warn)}
+
+.tcm{display:flex;align-items:center;gap:4px;padding:0;background:none;border:0;cursor:pointer;color:#1c2830;font-weight:600;font-size:12px;white-space:nowrap}
+.tcm span{text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 5px #fff}
+.tcm.sel span{text-decoration:underline}.tcm.alt{font-weight:500;font-size:11px}
+.tct{width:20px;height:20px;pointer-events:none}
+.tc-list{list-style:none;margin:6px 0;padding:0}.tc-list li{border-bottom:1px solid var(--line)}
+.tc-item{width:100%;display:flex;justify-content:space-between;align-items:center;gap:8px;min-height:44px;padding:6px 4px;background:none;border:0;border-left:3px solid transparent;color:inherit;cursor:pointer;text-align:left}
+.tc-item:hover{background:var(--raise)}.tc-item[aria-pressed=true]{border-left-color:var(--acc);background:var(--raise)}
+.maplibregl-popup-content{color:#1c2830;font-size:12px}

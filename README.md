@@ -4,7 +4,7 @@ Asia-focused weather analysis workstation. Phase 1 delivers a MapLibre map of As
 
 ## Status
 
-Built in phases. This repository contains Phase 1 and Phase 2 (satellite imagery and the Cloud Decoder).
+Built in phases. This repository contains Phase 1, Phase 2 (satellite imagery and the Cloud Decoder) and Phase 3 (tropical cyclones and warnings).
 
 | Area | Phase 1 |
 | --- | --- |
@@ -123,3 +123,21 @@ The GIBS colormap for Himawari Clean IR is `Clean_Longwave_Infrared_Window_Band.
 
 ### Not verified yet (the build container cannot reach GIBS, JMA or SSEC)
 JMA and SSEC tile geometry, CORS for SSEC, that the JMA Band 13 tiles are grey-scale, whether the calibration passes on real tiles, the basemap source-layer names used for borders and coastlines (`boundary`, `water` with class ocean), and real-device memory at full-disk zoom 5. Failures are reported in the Decoder panel rather than hidden.
+
+## Phase 3: tropical cyclones and warnings
+
+```
+api/_tc.ts       pure normalisers for JMA, GDACS and HKO payloads, plus great-circle helpers
+api/tc.ts        proxy: fetches the three feeds, validates, matches GDACS entries to JMA systems, one status line per feed
+api/tcprobe.ts   diagnostic: probes candidate JTWC and ATCF sources and reports exactly what came back
+src/tc/          map controller (tracks, circles, warning areas, markers), geometry, Storms panel
+```
+
+| Feed | Use | Status in the build session |
+| --- | --- | --- |
+| JMA typhoon JSON (`targetTc.json`, per-system `forecast.json`, `specifications.json`) | Active systems, analysis and forecast positions, 70% probability circles, gale and storm warning areas, pressure and 10-minute wind | The list endpoint returned live data; the per-system field layout comes from public client code and is parsed defensively |
+| GDACS cyclone events | Cross-check, alert level, systems JMA does not track | Returned live data, including JTWC-sourced entries |
+| HKO warning summary | Warnings and signals in force for Hong Kong | Documented by HKO; not fetched in the session, so the Sources tab shows its live status |
+| JTWC direct, ATCF mirrors | Not integrated | Reliability not confirmed; `/api/tcprobe` tests them from the deployed site |
+
+Anything the feeds do not give is shown as not provided. Unrecognised warning geometry is reported in the Storms tab instead of being drawn. JMA wind is a 10-minute mean and is not comparable with JTWC 1-minute winds.
