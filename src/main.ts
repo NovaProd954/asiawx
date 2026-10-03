@@ -11,6 +11,7 @@ import {fmtTime,compass,type Tz} from './lib/time';
 import {WindLayer,type Quality} from './wind/particles';
 import {renderMeteogram,renderTable} from './ui/meteogram';
 import {SatController} from './sat/controller';
+import {registerSW} from './sat/store';
 import {satLayerControls,satDecoderHtml,satDyn,satSig} from './sat/ui';
 import type {View} from './sat/decode';
 
@@ -62,7 +63,7 @@ function readout(lat:number,lon:number){
 const f=field();let w=' No wind data at this point';
 if(f&&sampleInto(f,lon,lat,tmp)){const r=toSpeedDir(tmp[0],tmp[1]);w=` Wind ${r.speed.toFixed(1)} m/s (${msToKt(r.speed).toFixed(0)} kt) from ${Math.round(r.dir)} deg ${compass(r.dir)}, interpolated model value`}
 const bt=sc?.btAt(lon,lat);
-$('coord').textContent=coordName(lat,lon)+w+(bt!=null?`. Cloud-top brightness temperature ${bt.toFixed(1)} deg C, decoded from GIBS colours, approximate`:'')}
+$('coord').textContent=coordName(lat,lon)+w+(bt!=null?`. Cloud-top brightness temperature ${bt.toFixed(1)} deg C, ${sc?.btSource??'decoded from GIBS colours'}, approximate`:'')}
 
 function buildLegend(){
 const stops=RAMP.map(([v,c])=>`${c} ${(v/25*100).toFixed(0)}%`).join(',');
@@ -195,9 +196,12 @@ $('now').addEventListener('click',()=>{stop();if(satOn()&&sc)setFrame(sc.frames.
 $('speed').addEventListener('change',()=>{if(st.playing)play()});
 $('p-lay').addEventListener('change',e=>{const t=e.target as HTMLInputElement;if(!sc)return;
 if(t.id==='l-sat'){stop();void sc.enable(t.checked).then(()=>{if(!sc?.on)t.checked=false;satChanged()})}
-else if(t.id==='l-sp'){stop();void sc.selectLayer(t.value)}});
+else if(t.id==='l-sp'){stop();void sc.selectLayer(t.value)}
+else if(t.id==='l-sb')sc.setBorders(t.checked)});
+$('p-lay').addEventListener('click',e=>{const t=(e.target as HTMLElement).closest('button');if(!t||!sc)return;if(t.id==='l-save'){if(sc.saving)sc.stopSaving();else void sc.saveLoop()}else if(t.id==='l-clear')void sc.clearSaved()});
 $('p-lay').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='l-so')sc?.setOpacity(+t.value)});
-$('p-dec').addEventListener('change',e=>{const t=e.target as HTMLSelectElement;if(!sc)return;if(t.id==='sd-view')sc.setView(t.value as View);else if(t.id==='sd-thr')sc.setThr(+t.value)});
+$('p-dec').addEventListener('change',e=>{const t=e.target as HTMLSelectElement;if(!sc)return;if(t.id==='sd-view')sc.setView(t.value as View);else if(t.id==='sd-thr')sc.setThr(+t.value);else if(t.id==='sd-sm')sc.setSmooth(+t.value);else if(t.id==='sd-cov')sc.setCov(t.value as 'fast'|'fine')});
+$('p-dec').addEventListener('click',e=>{const t=(e.target as HTMLElement).closest('button');if(t?.id==='sd-recal')void sc?.recalibrate()});
 $('p-dec').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='sd-mix')sc?.setMix(+t.value)});
 $('sheetbtn').addEventListener('click',()=>openSheet(!$('panel').classList.contains('open')));
 $('full').addEventListener('click',()=>{if(!document.fullscreenEnabled){setStatus('Fullscreen is not supported in this browser.','warn');return}if(document.fullscreenElement)void document.exitFullscreen();else void document.documentElement.requestFullscreen().catch(()=>setStatus('Fullscreen was blocked.','warn'))});
@@ -230,4 +234,4 @@ else if(e.key==='Enter'){const c=parseCoord(q.value.trim());if(c)choose(c);else 
 ul.addEventListener('pointerdown',e=>{const li=(e.target as HTMLElement).closest('li[data-i]') as HTMLElement|null;if(li){e.preventDefault();choose(items[+(li.dataset.i as string)])}});
 document.addEventListener('pointerdown',e=>{if(!(e.target as HTMLElement).closest('.search'))close()})}
 
-initUi();buildLegend();renderLayers();renderLocation('ok');renderDecoder();renderSources();showTab('loc');initMap();updateTime();applyWind();void loadWind();
+registerSW();initUi();buildLegend();renderLayers();renderLocation('ok');renderDecoder();renderSources();showTab('loc');initMap();updateTime();applyWind();void loadWind();
