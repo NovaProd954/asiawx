@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1620">
 <title>AsiaWX - Asian weather analysis</title>
 <meta name="description" content="Model forecasts, wind fields, satellite and tropical cyclone information for Asia and the Western Pacific, with the source, model run and valid time shown for every dataset.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230e1a22'/%3E%3Cpath d='M2 6h8a2 2 0 1 0-2-2M2 10h10a2 2 0 1 1-2 2' fill='none' stroke='%2358b6cc' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
 <div id="app">
@@ -34,11 +35,11 @@
 </main>
 <aside id="panel" aria-label="Analysis panel">
 <div role="tablist" id="tabs" aria-label="Panels">
-<button role="tab" id="t-loc" aria-controls="p-loc" aria-selected="true" type="button">Location</button>
-<button role="tab" id="t-lay" aria-controls="p-lay" aria-selected="false" type="button">Layers</button>
-<button role="tab" id="t-tc" aria-controls="p-tc" aria-selected="false" type="button">Storms</button>
-<button role="tab" id="t-dec" aria-controls="p-dec" aria-selected="false" type="button">Decoder</button>
-<button role="tab" id="t-src" aria-controls="p-src" aria-selected="false" type="button">Sources</button>
+<button role="tab" id="t-loc" aria-controls="p-loc" aria-selected="true" type="button"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="9" r="2.6"/><path d="M9 7 14 2M14 2v3M11.8 4.2v3"/></svg><span>Location</span></button>
+<button role="tab" id="t-lay" aria-controls="p-lay" aria-selected="false" type="button"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5c2-2 3 2 6 0s4-2 6 0M2 8.5c2-2 3 2 6 0s4-2 6 0M2 12c2-2 3 2 6 0s4-2 6 0"/></svg><span>Layers</span></button>
+<button role="tab" id="t-tc" aria-controls="p-tc" aria-selected="false" type="button"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="1.6"/><path d="M8 6.4C8 3.6 5.4 2.2 2.8 3.4M8 9.6c0 2.8 2.6 4.2 5.2 3"/></svg><span>Storms</span></button>
+<button role="tab" id="t-dec" aria-controls="p-dec" aria-selected="false" type="button"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12a2.7 2.7 0 0 1-.4-5.3 3.7 3.7 0 0 1 7.1.5A2.4 2.4 0 0 1 11.5 12z"/></svg><span>Decoder</span></button>
+<button role="tab" id="t-src" aria-controls="p-src" aria-selected="false" type="button"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="11.8" r="1"/><path d="M4.8 8.6a4.6 4.6 0 0 1 6.4 0M2.6 6.2a7.7 7.7 0 0 1 10.8 0"/></svg><span>Sources</span></button>
 </div>
 <section id="p-loc" role="tabpanel" aria-labelledby="t-loc" tabindex="0"></section>
 <section id="p-lay" role="tabpanel" aria-labelledby="t-lay" tabindex="0" hidden></section>
