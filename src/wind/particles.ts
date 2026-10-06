@@ -16,6 +16,7 @@ this.cols=Array.from({length:NB},(_,i)=>rampColor((i+0.5)*VMAX/NB,RAMP));
 map.on('movestart',()=>{this.moving=true});map.on('moveend',()=>{this.moving=false});
 map.on('resize',()=>this.resize());this.resize()}
 setField(f:Field|null){this.field=f}
+setRamp(r:[number,string][]){this.cols=Array.from({length:NB},(_,i)=>rampColor((i+0.5)*VMAX/NB,r))}
 setQuality(q:Quality){this.q=q;this.resize()}
 setOpacity(o:number){this.canvas.style.opacity=String(o)}
 resize(){

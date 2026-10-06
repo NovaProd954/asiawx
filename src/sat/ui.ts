@@ -1,6 +1,7 @@
 import type {SatController} from './controller';
 import {BANDS,COOL_K,CONV_T,OT_T,OT_DELTA,TEX_SD,enhColor,type View} from './decode';
 import {fmtTime,type Tz} from '../lib/time';
+import {card,radios} from '../ui/icons';
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] as string));
 const DEF=[{key:'ir',name:'Clean infrared, Band 13 (10.4 um)'},{key:'vis',name:'Visible red, Band 3 (0.64 um)'},{key:'airmass',name:'Air Mass RGB'}];
 export const VIEWS:[View,string,string][]=[
@@ -13,15 +14,16 @@ export const VIEWS:[View,string,string][]=[
 ['cloud','Cloud layer, background removed','Interpretive: clear-sky background estimated locally and removed; not an official cloud mask']];
 const THR=[-32,-42,-52,-62,-72];
 export const satSig=(c:SatController|null)=>c?`${c.on}|${c.key}|${c.view}|${c.cmapState}|${c.loading}|${!!c.catalog}|${c.frames.length>0}|${c.smoothLv}|${c.cov}|${c.borders}|${c.saving}|${c.cal.get(c.key)?.s??''}|${c.lums.has(c.key)}`:'none';
-export function satLayerControls(c:SatController|null):string{
-if(!c)return'<h2>Satellite</h2><p class="note">Satellite layers need WebGL and the map.</p>';
-const opt=(x:{key:string;name:string})=>`<option value="${x.key}" ${x.key===c.key?'selected':''}>${esc(x.name)}</option>`;
-let l=DEF.map(opt).join('');
+export function satCard(c:SatController|null):string{
+if(!c)return card({id:'sat',icon:'sat',label:'Satellite',sub:'Needs WebGL',body:'<p class="note">Satellite layers need WebGL and the map.</p>'});
+const items:{v:string;l:string;s?:string}[]=[];
 const pv=c.catalog?.providers??[];
-if(c.catalog){const g=new Map<string,string[]>();for(const x of c.catalog.layers){const a=g.get(x.provider)??[];a.push(opt(x));g.set(x.provider,a)}
-l=[...g].map(([id,o])=>`<optgroup label="${esc(pv.find(p=>p.id===id)?.name??id)}">${o.join('')}</optgroup>`).join('')}
+if(c.catalog){for(const x of c.catalog.layers)items.push({v:x.key,l:x.name,s:pv.find(p=>p.id===x.provider)?.name??x.provider})}
+else for(const x of DEF)items.push({v:x.key,l:x.name});
+const cur=c.catalog?.layers.find(x=>x.key===c.key)?.name??DEF.find(x=>x.key===c.key)?.name??'Himawari-9';
 const pl=pv.length?`<ul class="lim">${pv.map(p=>`<li>${esc(p.name)}: ${p.ok?'available':'unavailable'}${p.msg?`. ${esc(p.msg)}`:''}</li>`).join('')}</ul>`:'';
-return`<h2 class="gap">Satellite</h2><div class="ctl"><label><input type="checkbox" id="l-sat" ${c.on?'checked':''}> Himawari-9 imagery</label></div><div class="ctl"><label for="l-sp">Product</label><select id="l-sp">${l}</select></div><div class="ctl"><label for="l-so">Imagery opacity</label><input type="range" id="l-so" min="0.2" max="1" step="0.05" value="${c.opacity}"></div><p class="note">${c.loading?'Loading satellite catalog':'Switching it on changes the timeline to observation times; wind follows the nearest model hour. Frame spacing depends on the product.'}</p>${c.on?`<div class="ctl"><label><input type="checkbox" id="l-sb" ${c.borders?'checked':''}> Borders and coastlines above satellite</label></div><div class="ctl"><span>Saved frames</span><span><button type="button" class="btn sm" id="l-save">${c.saving?'Stop':'Save loop'}</button> <button type="button" class="btn sm" id="l-clear">Clear</button></span></div><p class="note" id="sc-stat"></p><p class="note">Tiles you view are kept on this device automatically, so replays and reloads do not hit the providers again. Save loop downloads every frame for the area on screen.</p>`:''}${pl}`}
+const body=`${radios('l-sp','Satellite product',items,c.key)}<div class="ctl"><label for="l-so">Opacity</label><input type="range" id="l-so" min="0.2" max="1" step="0.05" value="${c.opacity}"></div><p class="note">${c.loading?'Loading satellite catalog':'Switching it on changes the timeline to observation times; wind follows the nearest model hour.'}</p>${c.on?`<div class="ctl"><label class="chk"><input type="checkbox" id="l-sb" ${c.borders?'checked':''}> Borders above imagery</label></div><div class="ctl"><span>Saved frames</span><span class="pair"><button type="button" class="btn sm" id="l-save">${c.saving?'Stop':'Save loop'}</button><button type="button" class="btn sm" id="l-clear">Clear</button></span></div><p class="note" id="sc-stat"></p><p class="note">Viewed tiles are kept on this device so replays do not hit the providers again. Decoder views are in Info, Decoder.</p>`:''}${pl}`;
+return card({id:'sat',icon:'sat',label:'Satellite',sub:c.on?cur:'Himawari-9, off',sw:{id:'l-sat',on:c.on},body})}
 function legend(c:SatController):string{
 const v=c.view;
 if(v==='enh'){const st=[];for(let t=40;t>=-90;t-=10){const k=enhColor(t);st.push(`rgb(${k.join(',')}) ${((40-t)/130*100).toFixed(0)}%`)}

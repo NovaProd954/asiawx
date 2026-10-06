@@ -4,14 +4,18 @@ import type {Storm,Fix,Circle} from '../../api/_tc';
 import {hav} from '../../api/_tc';
 import {fixes,approach,brg} from './geo';
 import {fmtTime,compass,type Tz} from '../lib/time';
+import {card} from '../ui/icons';
 const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] as string));
 const n=(v:number|null,d=0,u='')=>v==null?'not provided':`${v.toFixed(d)}${u}`;
 const km=(m:number)=>`${Math.round(m/1000)} km (${Math.round(m/1852)} nm)`;
 export const tcSig=(c:TcController|null)=>c?`${c.on}|${c.state}|${c.opts.prob}|${c.opts.warn}|${c.opts.past}`:'none';
-export function tcLayerControls(c:TcController|null):string{
+export function tcCard(c:TcController|null):string{
 if(!c)return'';
-const cb=(id:string,l:string,v:boolean)=>`<div class="ctl"><label><input type="checkbox" id="${id}" ${v?'checked':''}> ${l}</label></div>`;
-return`<h2 class="gap">Tropical cyclones</h2>${cb('l-tc','Cyclone tracks and warnings (JMA, GDACS)',c.on)}${c.on?cb('l-tcp','JMA forecast probability circles',c.opts.prob)+cb('l-tcw','JMA gale and storm warning areas',c.opts.warn)+cb('l-tcpast','Past track',c.opts.past):''}<p class="note">${c.state==='loading'?'Loading cyclone data':c.state==='err'?esc(c.err):'Positions, forecast tracks and warning areas are JMA values; nothing is estimated here. The timeline ring is interpolated between official forecast points. Details are in the Storms tab.'}</p>`}
+const cb=(id:string,l:string,v:boolean)=>`<div class="ctl"><label class="chk"><input type="checkbox" id="${id}" ${v?'checked':''}> ${l}</label></div>`;
+const n=c.data?c.data.storms.length:0;
+const sub=!c.on?'Off':c.state==='loading'&&!c.data?'Loading':c.state==='err'&&!c.data?'Unavailable':`${n} active, JMA`;
+const body=`${c.on?cb('l-tcp','Probability circles',c.opts.prob)+cb('l-tcw','Gale and storm areas',c.opts.warn)+cb('l-tcpast','Past track',c.opts.past)+'<div class="ctl"><span></span><button type="button" class="btn sm" data-act="opentc">View storms</button></div>':''}<p class="note">${c.state==='loading'?'Loading cyclone data':c.state==='err'?esc(c.err):'Positions, tracks and warning areas are JMA values; nothing is estimated. The timeline ring is interpolated between official forecast points.'}</p>`;
+return card({id:'tc',icon:'tc',label:'Cyclones',sub,sw:{id:'l-tc',on:c.on},body})}
 function chart(s:Storm):string{
 const f=fixes(s).filter(x=>x.windKt!=null);
 if(f.length<2)return'';

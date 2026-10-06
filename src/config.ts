@@ -6,8 +6,11 @@ export const MODELS:ModelInfo[]=[
 {id:'ecmwf_ifs025',name:'ECMWF IFS',org:'ECMWF open data',res:'0.25 deg, about 28 km',license:'CC BY 4.0'},
 {id:'icon_seamless',name:'ICON',org:'DWD',res:'global 0.125 deg, about 13 km over Asia',license:'CC BY 4.0'}
 ];
-export const STYLES:Record<string,string>={light:'https://tiles.openfreemap.org/styles/positron',standard:'https://tiles.openfreemap.org/styles/bright'};
+export const STYLES:Record<string,string>={dark:'https://tiles.openfreemap.org/styles/dark',light:'https://tiles.openfreemap.org/styles/positron',standard:'https://tiles.openfreemap.org/styles/bright'};
+export const BASES:{v:string;l:string;s:string}[]=[{v:'dark',l:'Dark',s:'OpenFreeMap dark, incomplete labels'},{v:'light',l:'Light',s:'OpenFreeMap Positron'},{v:'standard',l:'Standard',s:'OpenFreeMap Bright'}];
 export const RAMP:[number,string][]=[[0,'#4b2a7b'],[5,'#375a8c'],[10,'#1f8a8a'],[15,'#2fa05a'],[20,'#a3a01a'],[25,'#c25a12']];
+export const RAMP_DARK:[number,string][]=[[0,'#6fb7ff'],[5,'#62e0d6'],[10,'#a8f08a'],[15,'#ffe66d'],[20,'#ffae5c'],[25,'#ff7a6b']];
+export const rampFor=(base:string)=>base==='dark'?RAMP_DARK:RAMP;
 export interface SourceInfo{key:string;name:string;what:string;license:string;attribution:string;coverage:string;update:string}
 export const SOURCES:SourceInfo[]=[
 {key:'grid',name:'Open-Meteo Forecast API (wind grid)',what:'10 m wind speed and direction sampled every 6 degrees from the selected model, 48 hourly steps',license:'Data CC BY 4.0; free API for non-commercial use',attribution:'Weather data by Open-Meteo.com',coverage:'25E-180E, 12S-78N',update:'Model runs, typically every 6 h; cached 3 h at the edge'},
