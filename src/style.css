@@ -170,9 +170,22 @@ hr.sp{border:0;border-top:1px solid var(--hair);margin:16px 0}
 .maplibregl-popup-anchor-top .maplibregl-popup-tip,.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,.maplibregl-popup-anchor-top-right .maplibregl-popup-tip{border-bottom-color:#121c26}
 .maplibregl-popup-anchor-left .maplibregl-popup-tip{border-right-color:#121c26}.maplibregl-popup-anchor-right .maplibregl-popup-tip{border-left-color:#121c26}
 .maplibregl-popup-close-button{color:var(--mute)}
-.tcm{display:flex;align-items:center;gap:4px;padding:0;background:none;border:0;color:#fff;font-weight:600;font-size:12px;white-space:nowrap}
-.tcm span{text-shadow:0 0 3px #000,0 0 5px #000,0 0 8px rgba(0,0,0,.7)}
-.tcm.sel span{text-decoration:underline}.tcm.alt{font-weight:500;font-size:11px}
+.tcm{position:relative;display:block;width:64px;height:64px;padding:0;background:none;border:0;color:#fff;font-weight:600;font-size:12px;white-space:nowrap;cursor:pointer}
+.tcm.alt{width:14px;height:14px}
+.tci{display:block;width:64px;height:64px;overflow:visible;filter:drop-shadow(0 1px 4px rgba(0,0,0,.65))}
+.tci-spin{transform-box:view-box;transform-origin:0 0;animation:tcspin 6s linear infinite}
+@keyframes tcspin{to{transform:rotate(360deg)}}
+.tcm span{position:absolute;left:calc(100% - 8px);top:50%;transform:translateY(-50%);padding:2px 8px;border-radius:9px;background:rgba(12,20,28,.78);text-shadow:none;border:1px solid var(--hair)}
+.tcm.alt span{left:calc(100% + 4px)}
+.tcm.sel span{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+.tcm:focus-visible{outline:2px solid var(--acc);border-radius:50%}
+.tcl{padding:1px 6px;border-radius:8px;background:rgba(12,20,28,.8);color:#fff;font:500 10.5px var(--mono);pointer-events:none;border:1px solid var(--hair)}
+.lgk{display:flex;flex-wrap:wrap;gap:6px 12px;margin:6px 0 2px;font-size:11.5px;color:var(--mute)}
+.lgk i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-2px;border:2px solid}
+.lgk i.dz{border-style:dashed;background:none}
+.tc-h{display:flex;align-items:center;gap:12px}.tc-h .tci{flex:none}
+.tc-item .tci{width:34px;height:34px;flex:none}.tc-item{gap:10px}
+.tc-item>span:first-of-type{flex:1;display:flex;flex-direction:column;min-width:0}
 .tct{width:20px;height:20px;pointer-events:none}
 @media (hover:none){#tip{display:none}}
 @media (max-width:1000px){:root{--mw:272px;--cw:344px}.search{width:250px}}

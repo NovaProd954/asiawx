@@ -268,7 +268,8 @@ if(t.name==='l-base'){setBase(t.value);return}
 if(t.id==='l-wind'){st.windOn=t.checked;applyWind();return}
 if(t.id==='l-q'){st.quality=t.value as Quality;wind?.setQuality(st.quality);return}
 if(t.id==='l-tc'){store.set('asiawx.tc',t.checked?'on':'off');void tc.enable(t.checked);return}
-if(t.id==='l-tcp'||t.id==='l-tcw'||t.id==='l-tcpast'){tc.setOpts({prob:t.id==='l-tcp'?t.checked:tc.opts.prob,warn:t.id==='l-tcw'?t.checked:tc.opts.warn,past:t.id==='l-tcpast'?t.checked:tc.opts.past});store.set('asiawx.tco',JSON.stringify(tc.opts));return}
+const ok:Record<string,keyof typeof tc.opts>={'l-tcp':'prob','l-tcw':'warn','l-tcpast':'past','l-tcr':'radii','l-tcd':'danger'};
+if(ok[t.id]){tc.setOpts({[ok[t.id]]:t.checked});store.set('asiawx.tco',JSON.stringify(tc.opts));return}
 if(!sc)return;
 if(t.id==='l-sat'){stop();void sc.enable(t.checked).then(()=>{if(!sc?.on)t.checked=false;satChanged()})}
 else if(t.name==='l-sp'){stop();void sc.selectLayer(t.value)}

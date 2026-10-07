@@ -87,7 +87,7 @@ it('combines the three sources and notes a per-system failure',async()=>{
 vi.stubGlobal('fetch',net());
 const r=mkRes();await tcApi({},r);
 expect(r.code).toBe(200);expect(r.headers['Cache-Control']).toMatch(/s-maxage=300/);
-expect(r.body.sources.map((x:any)=>x.id+':'+x.ok)).toEqual(['jma:true','gdacs:true','hko:true']);
+expect(r.body.sources.map((x:any)=>x.id+':'+x.ok)).toEqual(['jma:true','gdacs:true','hko:true','jtwc:false']);
 const a=r.body.storms.find((x:Storm)=>x.id==='TC2633'),b=r.body.storms.find((x:Storm)=>x.id==='TC2632');
 expect(a.gdacs?.name).toBe('CHOI-WAN-26');expect(a.now.windKt).toBe(55);
 expect(b.notes.join(' ')).toMatch(/forecast\.json unavailable: HTTP 404/);

@@ -1,7 +1,10 @@
 export interface Circle{lat:number;lon:number;r:number;partial:boolean}
 export interface Fix{h:number;t:number;lat:number;lon:number;prob:number|null;pressure:number|null;windKt:number|null;windMs:number|null;gustKt:number|null;gustMs:number|null;cat:string|null;scale:string|null;intensity:string|null;storm:Circle[]}
+export type Quad=[number,number,number,number];
+export interface JtFix{h:number;t:number;lat:number;lon:number;windKt:number|null;gustKt:number|null;r34:Quad|null;r50:Quad|null;r64:Quad|null}
+export interface Jt{id:string;name:string;type:string;nr:number;issue:number|null;fixes:JtFix[]}
 export interface Gdacs{id:number;name:string;lat:number;lon:number;alert:string;score:number;from:number;to:number;modified:number;agency:string;severity:string;country:string;report:string}
-export interface Storm{id:string;number:number;year:number;nameEn:string;nameJp:string;cat:string;catName:string;issue:number|null;now:Fix|null;fc:Fix[];gale:Circle[];past:[number,number][];pre:[number,number][];speedKmh:number|null;speedKt:number|null;course:string|null;location:string|null;gdacs:Gdacs|null;notes:string[]}
+export interface Storm{id:string;number:number;year:number;nameEn:string;nameJp:string;cat:string;catName:string;issue:number|null;now:Fix|null;fc:Fix[];gale:Circle[];past:[number,number][];pre:[number,number][];speedKmh:number|null;speedKt:number|null;course:string|null;location:string|null;gdacs:Gdacs|null;notes:string[];jt?:Jt|null}
 export interface Warn{key:string;name:string;code:string;action:string;issued:number|null;updated:number|null;tc:boolean}
 export interface SrcStat{id:string;name:string;ok:boolean;msg:string;ms:number|null;updated:number|null}
 export interface TcPayload{fetched:number;storms:Storm[];gdacsOnly:Gdacs[];warnings:Warn[];sources:SrcStat[]}
