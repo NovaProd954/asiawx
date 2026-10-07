@@ -19,6 +19,11 @@ import {tcCard,tcPanel,tcSig} from './tc/ui';
 import {esc,PLAYI,PAUSEI,card,radios,openCards} from './ui/icons';
 import {stationSvg} from './ui/station';
 import {pickTicks} from './ui/timeline';
+import {loadCmp,loadEns,type CmpData,type EnsData} from './data/compare';
+import {loadClim,loadRecent,type ClimResp,type RecentResp} from './data/hist';
+import {cmpPanel,cmpChart,cmpNow,ensBody,hisPanel,EVARS,type S as LS,type CmpState} from './cmp/ui';
+import {bindPick} from './ui/charts';
+import {drawDiff,nearestIdx,speedDiff,diffLegend} from './cmp/layer';
 
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
 const store={get(k:string){try{return localStorage.getItem(k)}catch{return null}},set(k:string,v:string){try{localStorage.setItem(k,v)}catch{}}};
@@ -26,11 +31,11 @@ interface Pin{lat:number;lon:number;name:string}
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const mobile=()=>matchMedia('(max-width:760px)').matches;
 const savedModel=store.get('asiawx.model');
-const st={model:MODELS.some(m=>m.id===savedModel)?savedModel as string:MODELS[0].id,tz:'UTC' as Tz,idx:0,grid:null as GridSet|null,point:null as Point|null,pin:null as Pin|null,playing:false,windOn:!reduce,quality:(matchMedia('(pointer:coarse)').matches||(navigator.hardwareConcurrency||4)<=4?'low':'medium') as Quality,opacity:0.9,base:(BASES.some(b=>b.v===store.get('asiawx.base'))?store.get('asiawx.base'):'dark') as string};
+const st={model:MODELS.some(m=>m.id===savedModel)?savedModel as string:MODELS[0].id,tz:'UTC' as Tz,idx:0,grid:null as GridSet|null,point:null as Point|null,pin:null as Pin|null,playing:false,windOn:!reduce,quality:(matchMedia('(pointer:coarse)').matches||(navigator.hardwareConcurrency||4)<=4?'low':'medium') as Quality,opacity:0.9,cmpMode:'off' as 'off'|'diff'|'split',modelB:MODELS[1].id,split:0.5,base:(BASES.some(b=>b.v===store.get('asiawx.base'))?store.get('asiawx.base'):'dark') as string};
 const modelInfo=()=>MODELS.find(m=>m.id===st.model) as typeof MODELS[number];
 
 
-let map:maplibregl.Map|null=null,wind:WindLayer|null=null,marker:maplibregl.Marker|null=null,sc:SatController|null=null,satSigV='';
+let map:maplibregl.Map|null=null,wind:WindLayer|null=null,wind2:WindLayer|null=null,gridB:GridSet|null=null,marker:maplibregl.Marker|null=null,sc:SatController|null=null,satSigV='';
 const satOn=()=>!!(sc&&sc.ready);
 const cur=()=>satOn()&&sc?sc.idx:st.idx;
 const tmp=new Float32Array(2);
@@ -46,7 +51,7 @@ if(msg&&retry){const b=document.createElement('button');b.type='button';b.classN
 
 function hasGL(){try{const c=document.createElement('canvas');return !!(c.getContext('webgl2')||c.getContext('webgl'))}catch{return false}}
 function field():Field|null{const g=st.grid;return g?{g:g.g,u:g.u[st.idx],v:g.v[st.idx]}:null}
-function applyWind(){if(!wind)return;wind.setField(st.windOn?field():null);if(st.windOn&&st.grid)wind.start();else wind.stop();$('legend').hidden=!(st.windOn&&st.grid)}
+function applyWind(){if(!wind)return;const on=st.windOn||st.cmpMode==='split';wind.setField(on?field():null);if(on&&st.grid)wind.start();else wind.stop();$('legend').hidden=!(on&&st.grid);applyCompare()}
 const curT=()=>st.grid?st.grid.times[st.idx]:Math.floor(Date.now()/3600000)*3600;
 const nowIdx=(g:GridSet)=>{const n=Date.now()/1000;let k=0;for(let i=0;i<g.times.length;i++)if(g.times[i]<=n)k=i;return k};
 
@@ -57,6 +62,8 @@ map=new maplibregl.Map({container:'map',style:STYLES[st.base],bounds:START,fitBo
 map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-right');
 if(!mobile())map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-right');
 wind=new WindLayer(map,$<HTMLCanvasElement>('wind'));wind.setQuality(st.quality);wind.setOpacity(st.opacity);wind.setRamp(rampFor(st.base));
+wind2=new WindLayer(map,$<HTMLCanvasElement>('wind2'));wind2.setQuality(st.quality);wind2.setOpacity(st.opacity);wind2.setRamp(rampFor(st.base));
+let dq=0;map.on('move',()=>{if(st.cmpMode!=='diff'||dq)return;dq=requestAnimationFrame(()=>{dq=0;paintDiff()})});map.on('resize',()=>{paintDiff();placeSplit()});
 sc=new SatController(map,{change:satChanged,status:setStatus});tc.attach(map);renderLayers();
 map.on('load',()=>health.set('basemap',{ok:true,lastOk:Date.now(),err:null,ms:null}));
 map.on('error',e=>{if(String((e as unknown as {sourceId?:string}).sourceId??'').startsWith('sat-'))return;const p=health.get('basemap');health.set('basemap',{ok:false,lastOk:p?.lastOk??null,err:String(e.error?.message??'tile or style error'),ms:null})});
@@ -72,8 +79,9 @@ const coordName=(lat:number,lon:number)=>`${Math.abs(lat).toFixed(2)}${lat<0?'S'
 function readout(lat:number,lon:number,pt:{x:number;y:number}){
 const f=field();let w='No wind data here';
 if(f&&sampleInto(f,lon,lat,tmp)){const r=toSpeedDir(tmp[0],tmp[1]);w=`Wind ${r.speed.toFixed(1)} m/s (${msToKt(r.speed).toFixed(0)} kt) from ${Math.round(r.dir)}\u00b0 ${compass(r.dir)}`}
+let cmpL='';if(st.cmpMode!=='off'&&st.grid&&gridB){const r=speedDiff(field() as Field,fieldB() as Field,lon,lat);if(r)cmpL=`<div>${esc(modelInfo().name)} ${r.a.toFixed(1)} m/s, ${esc(modelBInfo().name)} ${r.b.toFixed(1)} m/s, diff ${r.a-r.b>=0?'+':'\u2212'}${Math.abs(r.a-r.b).toFixed(1)}</div>`}
 const bt=sc?.btAt(lon,lat);
-const tip=$('tip');tip.innerHTML=`<div>${coordName(lat,lon)}</div><div>${w}</div>${bt!=null?`<div>Cloud top ${bt.toFixed(1)} \u00b0C, approximate</div>`:''}`;tip.hidden=false;
+const tip=$('tip');tip.innerHTML=`<div>${coordName(lat,lon)}</div><div>${w}</div>${cmpL}${bt!=null?`<div>Cloud top ${bt.toFixed(1)} \u00b0C, approximate</div>`:''}`;tip.hidden=false;
 const W=$('mapwrap').clientWidth,tw=tip.offsetWidth;tip.style.left=`${pt.x+18+tw>W?Math.max(4,pt.x-18-tw):pt.x+18}px`;tip.style.top=`${Math.max(4,pt.y+18)}px`}
 
 function buildLegend(){
@@ -116,7 +124,7 @@ function setWindIdx(i:number){
 const g=st.grid;if(!g)return;
 st.idx=Math.max(0,Math.min(g.times.length-1,i));
 if(!satOn())$<HTMLInputElement>('slider').value=String(st.idx);
-applyWind();updateTime();updateConditions();updateChart();
+applyWind();updateTime();updateConditions();updateChart();updateCmp();paintDiff();
 const v=$('dec-valid');if(v)v.textContent=fmtTime(g.times[st.idx],st.tz)}
 
 let gctl:AbortController|null=null;
@@ -201,23 +209,24 @@ $('p-src').innerHTML=`<h2>Data sources</h2>`+SOURCES.map(s=>`<article class="src
 function renderTc(){if($('p-tc').hidden)return;$('p-tc').innerHTML=tcPanel(tc,st.tz,st.pin)}
 function tcChanged(){const g=tcSig(tc);if(g!==tcSigV){tcSigV=g;renderLayers()}if(!$('p-tc').hidden)renderTc();if(!$('p-src').hidden)renderSources()}
 function openTc(){showCard('tc')}
-function setModel(id:string){st.model=id;store.set('asiawx.model',id);stop();void loadWind();if(st.pin)void loadLocation();renderLayers()}
-function setBase(v:string){st.base=v;store.set('asiawx.base',v);map?.setStyle(STYLES[v]);wind?.setRamp(rampFor(v));buildLegend();renderLayers()}
+function setModel(id:string){st.model=id;store.set('asiawx.model',id);fixB();stop();void loadWind();if(st.pin)void loadLocation();if(st.cmpMode!=='off'){gridB=null;void loadB()}renderLayers()}
+function setBase(v:string){st.base=v;store.set('asiawx.base',v);map?.setStyle(STYLES[v]);wind?.setRamp(rampFor(v));wind2?.setRamp(rampFor(v));buildLegend();renderLayers()}
 function renderLayers(){
 const a=document.activeElement as HTMLInputElement|null,host=$('p-lay');
 const fk=a&&host.contains(a)?(a.id?`#${a.id}`:a.name?`input[name="${a.name}"][value="${a.value}"]`:''):'';
 const m=modelInfo(),bs=BASES.find(b=>b.v===st.base);
 host.innerHTML=card({id:'model',icon:'model',label:'Forecast model',sub:`${m.name}, ${m.org}`,body:radios('l-model','Forecast model',MODELS.map(x=>({v:x.id,l:x.name,s:`${x.org}, ${x.res}`})),st.model)})
 +card({id:'wind',icon:'wind',label:'Wind',sub:'10 m particles',sw:{id:'l-wind',on:st.windOn},body:`<div class="ctl"><label for="l-op">Opacity</label><input type="range" id="l-op" min="0.2" max="1" step="0.05" value="${st.opacity}"></div><div class="ctl"><label for="l-q">Particle density</label><select id="l-q"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div><p class="note">Density defaults to Low on touch and low-core devices. Animation starts off when reduced motion is requested.</p>`})
-+satCard(sc)+tcCard(tc)
++cmpCard()+satCard(sc)+tcCard(tc)
 +card({id:'places',icon:'pin',label:'Places',sub:bookmarks().length?`${bookmarks().length} saved`:'None saved',body:placesHtml()})
 +card({id:'base',icon:'map',label:'Base map',sub:bs?bs.l:'',body:radios('l-base','Base map',BASES,st.base)});
 $<HTMLSelectElement>('l-q').value=st.quality;
 if(fk){const f=host.querySelector<HTMLElement>(fk);f?.focus()}}
 
-const CT=['loc','tc'],IT=['src','dec'];
+const CT=['loc','cmp','his','tc'],IT=['src','dec'];
 function setTabs(list:string[],n:string){for(const t of list){const on=t===n;$(`t-${t}`).setAttribute('aria-selected',String(on));$(`t-${t}`).tabIndex=on?0:-1;$(`p-${t}`).hidden=!on}}
-function showCard(n:string){setTabs(CT,n);$('card').hidden=false;if(n==='tc')renderTc();if(mobile())setMenu(false)}
+function onTab(n:string){if(n==='tc')renderTc();else if(n==='cmp'){renderCmp();void ensureCmp()}else if(n==='his'){renderHis();void ensureHis()}}
+function showCard(n:string){setTabs(CT,n);$('card').hidden=false;onTab(n);if(mobile())setMenu(false)}
 function closeCard(){$('card').hidden=true}
 const menuOpen=()=>mobile()?$('menu').classList.contains('open'):!$('menu').classList.contains('shut');
 function setMenu(o:boolean){const m=$('menu');if(mobile()){m.classList.toggle('open',o);m.classList.remove('shut')}else{m.classList.toggle('shut',!o);m.classList.remove('open')}$('menubtn').setAttribute('aria-expanded',String(o));if(mobile()&&o)closeCard()}
@@ -234,7 +243,7 @@ function play(){const n=()=>satOn()&&sc?sc.frames.length:st.grid?st.grid.times.l
 
 function initUi(){
 $('play').innerHTML=PLAYI;
-$('tz').addEventListener('click',()=>{st.tz=st.tz==='UTC'?'Local':'UTC';const b=$('tz');b.textContent=st.tz==='UTC'?'UTC':'Local';b.setAttribute('aria-label',`Time zone: ${b.textContent}. Activate to switch`);updateTime();renderTicks();renderDecoder();renderSources();renderTc();if(st.pin)renderLocation(st.point?'ok':'loading')});
+$('tz').addEventListener('click',()=>{st.tz=st.tz==='UTC'?'Local':'UTC';const b=$('tz');b.textContent=st.tz==='UTC'?'UTC':'Local';b.setAttribute('aria-label',`Time zone: ${b.textContent}. Activate to switch`);updateTime();renderTicks();renderDecoder();renderSources();renderTc();renderCmp();renderHis();if(st.pin)renderLocation(st.point?'ok':'loading')});
 $('play').addEventListener('click',()=>st.playing?stop():play());
 $('prev').addEventListener('click',()=>{stop();setIdx(cur()-1)});
 $('next').addEventListener('click',()=>{stop();setIdx(cur()+1)});
@@ -258,15 +267,20 @@ const f=[...$('info').querySelectorAll<HTMLElement>('button,input,select,summary
 if(!f.length)return;
 const a=f[0],z=f[f.length-1],cu=document.activeElement,dlg=$('info').querySelector('.dlg');
 if(e.shiftKey&&(cu===a||cu===dlg)){e.preventDefault();z.focus()}else if(!e.shiftKey&&cu===z){e.preventDefault();a.focus()}});
-tabKeys($('ctabs'),CT,n=>{setTabs(CT,n);if(n==='tc')renderTc()});
+tabKeys($('ctabs'),CT,n=>{setTabs(CT,n);onTab(n)});
 tabKeys($('itabs'),IT,n=>setTabs(IT,n));
+$('p-cmp').addEventListener('change',e=>{const t=e.target as HTMLInputElement;if(t.name==='cv')cm.cv=t.value;else if(t.name==='ce')cm.ei=t.value;else if(t.name==='cev')cm.ev=t.value;else return;renderCmp();document.querySelector<HTMLInputElement>(`#p-cmp input[name="${t.name}"][value="${t.value}"]`)?.focus()});
+$('p-cmp').addEventListener('click',e=>{const b=(e.target as HTMLElement).closest('[data-act]') as HTMLElement|null;if(!b)return;if(b.dataset.act==='cmp-retry')void ensureCmp(true);else if(b.dataset.act==='ens-retry')void ensureEns(true)});
+$('p-his').addEventListener('click',e=>{const b=(e.target as HTMLElement).closest('[data-act]') as HTMLElement|null;if(b?.dataset.act==='his-retry')void ensureHis(true)});
 matchMedia('(max-width:760px)').addEventListener('change',()=>{setMenu(!mobile());closeCard();renderTicks();moveMark();map?.resize()});
 new ResizeObserver(()=>{renderTicks();moveMark()}).observe($('track'));
 $('p-lay').addEventListener('change',e=>{const t=e.target as HTMLInputElement;
 if(t.name==='l-model'){setModel(t.value);return}
 if(t.name==='l-base'){setBase(t.value);return}
+if(t.name==='l-cm'){setCmpMode(t.value as 'off'|'diff'|'split');return}
+if(t.id==='l-mb'){st.modelB=t.value;gridB=null;void loadB();renderLayers();return}
 if(t.id==='l-wind'){st.windOn=t.checked;applyWind();return}
-if(t.id==='l-q'){st.quality=t.value as Quality;wind?.setQuality(st.quality);return}
+if(t.id==='l-q'){st.quality=t.value as Quality;wind?.setQuality(st.quality);wind2?.setQuality(st.quality);return}
 if(t.id==='l-tc'){store.set('asiawx.tc',t.checked?'on':'off');void tc.enable(t.checked);return}
 const ok:Record<string,keyof typeof tc.opts>={'l-tcp':'prob','l-tcw':'warn','l-tcpast':'past','l-tcr':'radii','l-tcd':'danger'};
 if(ok[t.id]){tc.setOpts({[ok[t.id]]:t.checked});store.set('asiawx.tco',JSON.stringify(tc.opts));return}
@@ -274,7 +288,7 @@ if(!sc)return;
 if(t.id==='l-sat'){stop();void sc.enable(t.checked).then(()=>{if(!sc?.on)t.checked=false;satChanged()})}
 else if(t.name==='l-sp'){stop();void sc.selectLayer(t.value)}
 else if(t.id==='l-sb')sc.setBorders(t.checked)});
-$('p-lay').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='l-op'){st.opacity=+t.value;wind?.setOpacity(st.opacity)}else if(t.id==='l-so')sc?.setOpacity(+t.value)});
+$('p-lay').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='l-op'){st.opacity=+t.value;wind?.setOpacity(st.opacity);wind2?.setOpacity(st.opacity)}else if(t.id==='l-so')sc?.setOpacity(+t.value)});
 $('p-lay').addEventListener('click',e=>{
 const el=e.target as HTMLElement,ct=el.closest('.card-t') as HTMLElement|null;
 if(ct){const id=ct.dataset.card as string,sec=ct.closest('.card') as HTMLElement,o=!openCards.has(id);if(o)openCards.add(id);else openCards.delete(id);sec.classList.toggle('open',o);ct.setAttribute('aria-expanded',String(o));(sec.querySelector('.card-b') as HTMLElement).hidden=!o;return}
@@ -300,6 +314,80 @@ if(a==='save'&&st.pin){const bm=bookmarks();if(!isSaved(st.pin)){bm.push(st.pin)
 else if(a==='retry')void loadLocation()});
 initSearch()}
 
+const cm={cv:'temperature_2m',ev:'temperature_2m',ei:'',cmp:null as CmpData|null,ens:null as EnsData|null,cs:'idle' as LS,es:'idle' as LS,key:'',ekey:''};
+const hi={clim:null as ClimResp|null,rec:null as RecentResp|null,hs:'idle' as LS,key:''};
+let cctl:AbortController|null=null,ectl:AbortController|null=null,hctl:AbortController|null=null,bctl:AbortController|null=null;
+const pk=()=>st.pin?`${st.pin.lat.toFixed(3)},${st.pin.lon.toFixed(3)}`:'';
+const cmpState=():CmpState=>({pin:st.pin,tz:st.tz,cursor:curT(),cmp:cm.cmp,cs:cm.cs,ens:cm.ens,es:cm.es,cv:cm.cv,ev:cm.ev,ei:cm.ei});
+const ensCur=()=>{const o=cm.ens?.ens.filter(x=>x.ok)??[];return o.find(x=>x.id===cm.ei)??o[0]};
+function bindCharts(){const pick=(t:number)=>{const g=st.grid;if(!g)return;const i=Math.round((t-g.times[0])/3600);if(i>=0&&i<g.times.length)setIdx(i)};for(const id of ['cm-chart','cm-ens']){const h=document.getElementById(id);if(h)bindPick(h,pick)}}
+function renderCmp(){if($('p-cmp').hidden)return;$('p-cmp').innerHTML=cmpPanel(cmpState());bindCharts()}
+function updateCmp(){
+if($('p-cmp').hidden)return;
+const S=cmpState(),a=document.getElementById('cm-chart'),b=document.getElementById('cm-now'),e=document.getElementById('cm-ens');
+if(a&&cm.cmp)a.innerHTML=cmpChart(S);if(b&&cm.cmp)b.innerHTML=cmpNow(S);
+const cur=ensCur();if(e&&cur)e.innerHTML=ensBody(S,cur,EVARS.find(x=>x.k===cm.ev)??EVARS[0]);
+bindCharts()}
+async function ensureCmp(force=false){
+const p=st.pin;if(!p)return;
+void ensureEns(force);
+const k=pk();if(!force&&cm.key===k&&cm.cs!=='err')return;
+cm.key=k;cctl?.abort();const c=cctl=new AbortController();cm.cs='loading';cm.cmp=null;renderCmp();
+try{const d=await loadCmp(p.lat,p.lon,c.signal);if(c.signal.aborted)return;cm.cmp=d;cm.cs='ok'}catch{if(c.signal.aborted)return;cm.cs='err'}
+renderCmp()}
+async function ensureEns(force=false){
+const p=st.pin;if(!p)return;
+const k=pk();if(!force&&cm.ekey===k&&cm.es!=='err')return;
+cm.ekey=k;ectl?.abort();const c=ectl=new AbortController();cm.es='loading';cm.ens=null;renderCmp();
+try{const d=await loadEns(p.lat,p.lon,c.signal);if(c.signal.aborted)return;cm.ens=d;cm.es='ok';if(!d.ens.some(x=>x.ok&&x.id===cm.ei))cm.ei=d.ens.find(x=>x.ok)?.id??''}catch{if(c.signal.aborted)return;cm.es='err'}
+renderCmp()}
+const hisState=()=>({pin:st.pin,tz:st.tz,clim:hi.clim,rec:hi.rec,hs:hi.hs});
+function renderHis(){if($('p-his').hidden)return;$('p-his').innerHTML=hisPanel(hisState())}
+async function ensureHis(force=false){
+const p=st.pin;if(!p)return;
+const k=pk();if(!force&&hi.key===k&&hi.hs!=='err')return;
+hi.key=k;hctl?.abort();const c=hctl=new AbortController();hi.hs='loading';hi.clim=null;hi.rec=null;renderHis();
+try{const[cl,rc]=await Promise.all([loadClim(p.lat,p.lon,c.signal),loadRecent(p.lat,p.lon,c.signal)]);if(c.signal.aborted)return;hi.clim=cl;hi.rec=rc;hi.hs='ok'}catch{if(c.signal.aborted)return;hi.hs='err'}
+renderHis()}
+
+const modelBInfo=()=>MODELS.find(m=>m.id===st.modelB)??MODELS[1];
+function fixB(){if(st.modelB===st.model)st.modelB=(MODELS.find(m=>m.id!==st.model) as typeof MODELS[number]).id}
+const bIdx=()=>gridB&&st.grid?nearestIdx(gridB.times,st.grid.times[st.idx]):0;
+function fieldB():Field|null{const g=gridB;if(!g)return null;const i=bIdx();return{g:g.g,u:g.u[i],v:g.v[i]}}
+function paintDiff(){
+const cv=$<HTMLCanvasElement>('diff'),on=st.cmpMode==='diff'&&!!map&&!!st.grid&&!!gridB;
+cv.hidden=!on;if(!on||!map)return;
+drawDiff(map,cv,field(),fieldB())}
+function placeSplit(){
+const w=$('mapwrap').clientWidth,x=Math.round(w*st.split),sp=$('split'),g=$('grip');
+sp.style.left=`${x}px`;g.setAttribute('aria-valuenow',String(Math.round(st.split*100)));
+$('wind').style.clipPath=st.cmpMode==='split'?`inset(0 ${w-x}px 0 0)`:'';
+$('wind2').style.clipPath=`inset(0 0 0 ${x}px)`}
+function applyCompare(){
+const split=st.cmpMode==='split'&&!!gridB&&!!st.grid;
+$('wind2').hidden=!split;$('split').hidden=!split;
+if(split){$('sp-a').textContent=modelInfo().name;$('sp-b').textContent=modelBInfo().name;placeSplit()}else $('wind').style.clipPath='';
+if(wind2){wind2.setField(split?fieldB():null);if(split)wind2.start();else wind2.stop()}
+paintDiff()}
+async function loadB(){
+bctl?.abort();
+if(st.cmpMode==='off'){gridB=null;applyWind();return}
+const c=bctl=new AbortController(),want=st.modelB;
+setStatus(`Loading ${modelBInfo().name} wind field for comparison`,'info');
+try{const g=await loadGrid(want,c.signal);if(c.signal.aborted)return;gridB=g;setStatus('','info');applyWind()}
+catch{if(c.signal.aborted)return;gridB=null;st.cmpMode='off';applyWind();renderLayers();setStatus(`The ${modelBInfo().name} wind field could not be loaded, so the comparison is off.`,'err',()=>{st.cmpMode='diff';renderLayers();void loadB()})}}
+function setCmpMode(m:'off'|'diff'|'split'){st.cmpMode=m;fixB();if(m==='off'){bctl?.abort();gridB=null;applyWind();renderLayers();return}if(gridB&&gridB.model===st.modelB){applyWind();renderLayers();return}gridB=null;renderLayers();void loadB()}
+function cmpCard(){
+const A=modelInfo().name,B=modelBInfo().name,sub=st.cmpMode==='off'?'Two models side by side':`${A} and ${B}`;
+const opts=MODELS.filter(m=>m.id!==st.model).map(m=>`<option value="${m.id}"${m.id===st.modelB?' selected':''}>${esc(m.name)}</option>`).join('');
+return card({id:'cmp',icon:'compare',label:'Compare models',sub,body:radios('l-cm','Model comparison on the map',[{v:'off',l:'Off'},{v:'diff',l:'Difference map',s:'10 m wind speed, first model minus second'},{v:'split',l:'Split view',s:'Wind particles, first model left, second right'}],st.cmpMode)+`<div class="ctl"><label for="l-mb">Second model</label><select id="l-mb">${opts}</select></div><p class="note">The first model is the one chosen under Forecast model.</p>`+(st.cmpMode==='diff'?diffLegend(esc(A),esc(B)):'')+(st.cmpMode==='split'?'<p class="note">Drag the handle to move the divider. Both halves animate, so lower the particle density on slow devices.</p>':'')+(st.cmpMode!=='off'?'<p class="note">Both fields are sampled every 6 degrees, so only broad-scale differences show. Hover a point for both values.</p>':'')})}
+function initCompare(){
+const g=()=>$('grip'),mv=(clientX:number)=>{const r=$('mapwrap').getBoundingClientRect();st.split=Math.min(0.9,Math.max(0.1,(clientX-r.left)/r.width));placeSplit()};
+queueMicrotask(()=>{
+g().addEventListener('pointerdown',e=>{g().setPointerCapture(e.pointerId);const m=(ev:PointerEvent)=>mv(ev.clientX),u=()=>{g().removeEventListener('pointermove',m);g().removeEventListener('pointerup',u);g().removeEventListener('pointercancel',u)};g().addEventListener('pointermove',m);g().addEventListener('pointerup',u);g().addEventListener('pointercancel',u)});
+g().addEventListener('keydown',e=>{const d=e.key==='ArrowLeft'?-0.05:e.key==='ArrowRight'?0.05:0;if(!d)return;e.preventDefault();st.split=Math.min(0.9,Math.max(0.1,st.split+d));placeSplit()});
+new ResizeObserver(()=>placeSplit()).observe($('mapwrap'))})}
+
 function initSearch(){
 const q=$<HTMLInputElement>('q'),ul=$('results');let items:Place[]=[],act=-1,ctl:AbortController|null=null,tm=0;
 const close=()=>{ul.hidden=true;q.setAttribute('aria-expanded','false');q.removeAttribute('aria-activedescendant');act=-1};
@@ -314,4 +402,4 @@ else if(e.key==='Enter'){const c=parseCoord(q.value.trim());if(c)choose(c);else 
 ul.addEventListener('pointerdown',e=>{const li=(e.target as HTMLElement).closest('li[data-i]') as HTMLElement|null;if(li){e.preventDefault();choose(items[+(li.dataset.i as string)])}});
 document.addEventListener('pointerdown',e=>{if(!(e.target as HTMLElement).closest('.search'))close()})}
 
-registerSW();initUi();buildLegend();renderLayers();renderLocation('ok');renderDecoder();renderSources();setTabs(CT,'loc');setTabs(IT,'src');setMenu(!mobile());initMap();tc.start();updateTime();applyWind();void loadWind();
+initCompare();registerSW();initUi();buildLegend();renderLayers();renderLocation('ok');renderDecoder();renderSources();setTabs(CT,'loc');setTabs(IT,'src');setMenu(!mobile());initMap();tc.start();updateTime();applyWind();void loadWind();

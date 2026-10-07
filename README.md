@@ -141,3 +141,11 @@ src/tc/          map controller (tracks, circles, warning areas, markers), geome
 | JTWC direct, ATCF mirrors | Not integrated | Reliability not confirmed; `/api/tcprobe` tests them from the deployed site |
 
 Anything the feeds do not give is shown as not provided. Unrecognised warning geometry is reported in the Storms tab instead of being drawn. JMA wind is a 10-minute mean and is not comparable with JTWC 1-minute winds.
+
+## Phase 4: comparison, predictability and history
+
+- Compare tab: six deterministic models for one point (GFS, ECMWF IFS, ICON, JMA GSM, GEM, UK Met Office) through `/api/compare`. Each model is fetched separately; a model the provider refuses is listed as unavailable with its error, never filled in.
+- Predictability: the spread between models by day, and the GEFS and ECMWF ensembles through `/api/ens` (all members reduced to percentiles and daily rain shares on the server). Only real member statistics are shown; there are no invented confidence percentages.
+- Layer compare on the map: wind speed difference between two models, and a draggable split view with particles from each model.
+- History tab: ERA5 reanalysis through `/api/hist` (`part=clim` for the 1991 to 2020 normals, cached 30 days; `part=recent` for the last 14 months). Anomalies, 30 and 90 day summaries, cumulative rain against normal.
+- Unverified from the build sandbox (no route to Open-Meteo): the ensemble response key layout, the extra model ids, and `models=era5` on the archive API. The Sources tab and each panel report failures per model or ensemble.
