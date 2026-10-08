@@ -149,3 +149,11 @@ Anything the feeds do not give is shown as not provided. Unrecognised warning ge
 - Layer compare on the map: wind speed difference between two models, and a draggable split view with particles from each model.
 - History tab: ERA5 reanalysis through `/api/hist` (`part=clim` for the 1991 to 2020 normals, cached 30 days; `part=recent` for the last 14 months). Anomalies, 30 and 90 day summaries, cumulative rain against normal.
 - Unverified from the build sandbox (no route to Open-Meteo): the ensemble response key layout, the extra model ids, and `models=era5` on the archive API. The Sources tab and each panel report failures per model or ensemble.
+
+## Phase 4.1: model maps
+
+- Layers > Model maps: temperature (with isotherms), rain over 3 h and over the next 24 h, cloud cover, pressure (isobars every 4 hPa, labelled, with H and L centres), wind gusts, humidity and CAPE, from the selected forecast model.
+- Data: `/api/fields` samples the model every 4 degrees at 3 hour steps (one request per model, cached 6 h at the edge). Continuous fields are interpolated in time and drawn with Catmull-Rom smoothing in Mercator space; rain totals use the nearest model step. A field a model does not provide is reported as missing, never drawn.
+- Wind particles switch to a single neutral colour while a model map is on, and the timeline legend shows the map's scale.
+- Fields are 4 degree samples, so they show broad patterns. Rain in particular is smoothed; small showers do not appear.
+- Unverified from the build sandbox: that Open-Meteo returns `cape` for every model (the layer says so if not), and the live look of isobar labels (the font `Noto Sans Regular` is the one OpenFreeMap serves).

@@ -239,3 +239,7 @@ hr.sp{border:0;border-top:1px solid var(--hair);margin:16px 0}
 .cap{color:var(--mute);font-size:11.5px;margin:6px 0 2px}
 @media (max-width:760px){#grip{width:46px;height:46px}.sp-tag{top:calc(var(--top) + 48px)}}
 @media (prefers-reduced-motion:reduce){#diff{filter:none}}
+.lg-bar.fl{background-color:#2b3947}
+.lg-ticks.fl{position:relative;display:block;height:14px}
+.lg-ticks.fl span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
+.lg-ticks.fl span:first-child{transform:none}

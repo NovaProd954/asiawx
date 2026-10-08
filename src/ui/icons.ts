@@ -20,6 +20,7 @@ map:'<path d="m3.5 6.5 5.5-2.5 6 2.5 5.5-2.5v13l-5.5 2.5-6-2.5-5.5 2.5z"/><path 
 therm:'<path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z"/>',
 storm:'<circle cx="12" cy="12" r="2"/><path d="M12 10C12 6 8.5 4 5 5.5M12 14c0 4 3.5 6 7 4.5"/>',
 compare:'<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M12 5v14"/><path d="M7.5 10.5 6 12l1.5 1.5M16.5 10.5 18 12l-1.5 1.5"/>',
+field:'<path d="M3 7.5c3-3 6 3 9 0s6-3 9 0"/><path d="M3 12.5c3-3 6 3 9 0s6-3 9 0"/><path d="M3 17.5c3-3 6 3 9 0s6-3 9 0"/>',
 trash:'<path d="M5 7h14M10 7V4.5h4V7M7 7l.8 12.5h8.4L17 7"/>'};
 export function icon(n:string,s=20,fill=false){return`<svg class="i" width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true" fill="${fill?'currentColor':'none'}" stroke="${fill?'none':'currentColor'}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${P[n]??''}</svg>`}
 export const PLAYI='<svg class="i" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.5v13l10.5-6.5z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
