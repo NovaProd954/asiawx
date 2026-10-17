@@ -13,7 +13,8 @@ import {renderMeteogram,renderTable} from './ui/meteogram';
 import {SatController} from './sat/controller';
 import {registerSW} from './sat/store';
 import {satCard,satDecoderHtml,satDyn,satSig} from './sat/ui';
-import type {View} from './sat/decode';
+import type {View,Eng} from './sat/decode';
+import type {RealP} from './sat/real';
 import {TcController} from './tc/controller';
 import {tcCard,tcPanel,tcSig} from './tc/ui';
 import {esc,PLAYI,PAUSEI,card,radios,openCards} from './ui/icons';
@@ -127,7 +128,8 @@ configSlider();
 if(satOn()&&sc&&sc.time!=null&&st.grid){const k=windIdxFor(sc.time);if(k!==st.idx)setWindIdx(k)}
 updateTime();
 const sig=satSig(sc);
-if(sig!==satSigV){satSigV=sig;renderLayers();renderDecoder()}else satDyn(sc,st.tz)}
+if(sig!==satSigV){satSigV=sig;renderLayers();renderDecoder()}satDyn(sc,st.tz);
+if(sc?.lost){sc.lost=false;stop()}}
 function setWindIdx(i:number){
 const g=st.grid;if(!g)return;
 st.idx=Math.max(0,Math.min(g.times.length-1,i));
@@ -248,7 +250,10 @@ host.addEventListener('keydown',e=>{const i=list.findIndex(t=>$(`t-${t}`).getAtt
 
 let ptimer=0;
 function stop(){st.playing=false;sc?.setPlaying(false);clearInterval(ptimer);$('play').innerHTML=PLAYI;$('play').setAttribute('aria-label','Play timeline')}
-function play(){const n=()=>satOn()&&sc?sc.frames.length:st.grid?st.grid.times.length:0;if(!n())return;st.playing=true;sc?.setPlaying(true);$('play').innerHTML=PAUSEI;$('play').setAttribute('aria-label','Pause timeline');clearInterval(ptimer);ptimer=window.setInterval(()=>{if(satOn()&&sc?.busy)return;const c=cur();setIdx(c>=n()-1?0:c+1)},+$<HTMLSelectElement>('speed').value)}
+function play(){const n=()=>satOn()&&sc?sc.frames.length:st.grid?st.grid.times.length:0;if(!n())return;st.playing=true;sc?.setPlaying(true);$('play').innerHTML=PAUSEI;$('play').setAttribute('aria-label','Pause timeline');clearInterval(ptimer);
+const sp=+$<HTMLSelectElement>('speed').value,go=()=>{if(sc)sc.fadeMs=Math.min(350,Math.round(sp*0.85));ptimer=window.setInterval(()=>{if(satOn()&&sc?.busy)return;const c=cur();setIdx(c>=n()-1?0:c+1)},sp)};
+if(satOn()&&sc&&!sc.loopMode){void sc.saveLoop(true).then(ok=>{if(!st.playing)return;if(!ok){stop();return}go()});return}
+go()}
 
 function initUi(){
 $('play').innerHTML=PLAYI;
@@ -311,9 +316,9 @@ else if(a==='fld-retry')void fld.load();
 else if(a==='go'&&bm[i]){map?.flyTo({center:[bm[i].lon,bm[i].lat],zoom:6});void selectPoint(bm[i])}
 else if(a==='del'){bm.splice(i,1);store.set('asiawx.bm',JSON.stringify(bm));renderLayers();if(st.pin)renderLocation(st.point?'ok':'loading')}
 else if(sc){if(b.id==='l-save'){if(sc.saving)sc.stopSaving();else void sc.saveLoop()}else if(b.id==='l-clear')void sc.clearSaved()}});
-$('p-dec').addEventListener('change',e=>{const t=e.target as HTMLSelectElement;if(!sc)return;if(t.id==='sd-view')sc.setView(t.value as View);else if(t.id==='sd-thr')sc.setThr(+t.value);else if(t.id==='sd-sm')sc.setSmooth(+t.value);else if(t.id==='sd-cov')sc.setCov(t.value as 'fast'|'fine')});
+$('p-dec').addEventListener('change',e=>{const t=e.target as HTMLSelectElement;if(!sc)return;if(t.id==='sd-view')sc.setView(t.value as View);else if(t.id==='sd-thr')sc.setThr(+t.value);else if(t.id==='sd-sm')sc.setSmooth(+t.value);else if(t.id==='sd-cov')sc.setCov(t.value as 'fast'|'fine');else if(t.id==='sd-eng'){stop();sc.setEngine(t.value as Eng)}else if(t.id==='sd-v2pal')sc.setReal('pal',t.value as RealP['pal'])});
 $('p-dec').addEventListener('click',e=>{const t=(e.target as HTMLElement).closest('button');if(t?.id==='sd-recal')void sc?.recalibrate()});
-$('p-dec').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='sd-mix')sc?.setMix(+t.value)});
+$('p-dec').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='sd-mix')sc?.setMix(+t.value);else if(sc&&t.id.startsWith('sd-v2-')){const k=t.id.slice(6) as Exclude<keyof RealP,'pal'>,v=+t.value;sc.setReal(k,v);const o=document.getElementById(`sd-v2v-${k}`);if(o)o.textContent=k==='light'?`${Math.round(v)} deg`:k==='soft'?String(v):v.toFixed(2)}});
 $('p-tc').addEventListener('click',e=>{const b=(e.target as HTMLElement).closest('[data-act]') as HTMLElement|null;if(!b)return;const a=b.dataset.act,id=b.dataset.id??'';
 if(a==='sel'){tc.select(id);tc.fly(id)}else if(a==='fly'||a==='flyg'){tc.fly(id);if(mobile())closeCard()}else if(a==='refresh')void tc.load()});
 $('full').addEventListener('click',()=>{if(!document.fullscreenEnabled){setStatus('Fullscreen is not supported in this browser.','warn');return}if(document.fullscreenElement)void document.exitFullscreen();else void document.documentElement.requestFullscreen().catch(()=>setStatus('Fullscreen was blocked.','warn'))});

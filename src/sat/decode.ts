@@ -1,10 +1,12 @@
 import {buildLut} from './colormap';
 import {fitCurve,lumOf,type Fit} from './calib';
 import {LIMB,diskVis} from './geo';
-export type View='raw'|'enh'|'cold'|'conv'|'ot'|'cool'|'cloud';
+import {renderReal,REAL_DEF,type RealP} from './real';
+export type View='raw'|'enh'|'cold'|'conv'|'ot'|'cool'|'cloud'|'real';
+export type Eng='v1'|'v2';
 export type Src='cmap'|'lum'|'vis';
 export interface Mask{row:Float32Array;col:Float32Array}
-export interface DecodeIn{w:number;h:number;cur:Uint8ClampedArray;prev:Uint8ClampedArray|null;view:View;thr:number;native:boolean;rgb:Uint8Array;btv:Float32Array;lum?:Float32Array|null;src?:Src;mask?:Mask|null;smooth?:number;scale?:number;ppd?:number}
+export interface DecodeIn{w:number;h:number;cur:Uint8ClampedArray;prev:Uint8ClampedArray|null;view:View;thr:number;native:boolean;rgb:Uint8Array;btv:Float32Array;lum?:Float32Array|null;src?:Src;mask?:Mask|null;smooth?:number;scale?:number;ppd?:number;eng?:Eng;real?:RealP;ox?:number;oy?:number}
 export interface Stats{valid:number;unmatched:number;min:number|null;flag:number}
 export interface DecodeOut{out:Uint8ClampedArray;ow:number;oh:number;bt:Float32Array;stats:Stats}
 export interface CalibIn{w:number;h:number;src:Uint8ClampedArray;ref:Uint8ClampedArray;rgb:Uint8Array;btv:Float32Array;mask:Mask}
@@ -178,6 +180,9 @@ return{out,flag,ow,oh}}
 function applyMask(bt:Float32Array,w:number,h:number,m:Mask){
 for(let y=0;y<h;y++){const ry=m.row[y];for(let x=0;x<w;x++)if(ry*m.col[x]<=LIMB)bt[y*w+x]=NaN}}
 export function run(i:DecodeIn):DecodeOut{
+if(i.eng==='v2'&&i.view==='real'){
+const r=renderReal(i.cur,i.w,i.h,i.real??REAL_DEF,{scale:i.scale,mask:i.mask,ox:i.ox,oy:i.oy});
+return{out:r.out,ow:r.ow,oh:r.oh,bt:new Float32Array(0),stats:{valid:r.valid,unmatched:0,min:null,flag:r.flag}}}
 const o={unmatched:0},src=i.src??(i.lum?'lum':'cmap');
 let lut:(r:number,g:number,b:number)=>number;
 if(src==='lum'&&i.lum){const L=i.lum;lut=(r,g,b)=>L[lumOf(r,g,b)]}
