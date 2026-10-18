@@ -3,7 +3,8 @@ import {health} from '../lib/http';
 import {buildTileUrl,type TFmt} from '../../api/_wmts';
 import {parseColormap,type CMap} from './colormap';
 import {run,calibrate,type DecodeIn,type DecodeOut,type CalibIn,type Stats,type View,type Src,type Eng} from './decode';
-import {REAL_DEF,realKey,type RealP} from './real';
+import {V2_DEF,v2Key,mergeHist,hiOf,histV2,type V2P,type Hist} from './real';
+import {Pool} from './pool';
 import type {Fit} from './calib';
 import {TS,lonToX,latToY,xToLon,yToLat,tileRange,wideRange,padBox,boxOf,inside,diskArrays,ppdOf,type TileRng,type Box} from './geo';
 import {cacheInfo,clearCache,keepStorage,fmtBytes,supported} from './store';
@@ -30,15 +31,15 @@ export class SatController{
 on=false;key='ir';catalog:Catalog|null=null;frames:number[]=[];idx=0;opacity=0.85;view:View='raw';thr=-52;mix=1;smoothLv=2;cov:Cov='fast';borders=true;
 busy=false;playing=false;cmap:CMap|null=null;cmapState:'idle'|'loading'|'ok'|'unusable'|'error'='idle';
 meta:Meta|null=null;wmeta:Meta|null=null;bt:Float32Array|null=null;wbt:Float32Array|null=null;dstat='';dkind:'info'|'warn'|'err'='info';loading=false;
-lums=new Map<string,Fit>();cal=new Map<string,{s:'working'|'ok'|'fail';m:string}>();saving=false;cstat='';cinfo='';eng:Eng='v2';real:RealP={...REAL_DEF};loopMode=false;lost=false;fadeMs=0;
-private lraw:string[]=[];private ldec:string[]=[];private lurls:string[]=[];private lcur=-1;private lraf=0;private lbox:Box|null=null;private lz=0;private byPlay=false;
+lums=new Map<string,Fit>();cal=new Map<string,{s:'working'|'ok'|'fail';m:string}>();saving=false;cstat='';cinfo='';eng:Eng='v2';v2:V2P=JSON.parse(JSON.stringify(V2_DEF));loopMode=false;lost=false;fadeMs=0;
+private lneedRaw=false;private rbox:Box|null=null;private rz=0;private pt:{L:SatLayer;times:number[]}|null=null;private tstore=new Map<string,ArrayBuffer>();private tseen=new Set<string>();private proto=false;private lwide:(Blob|null)[]=[];private ldet:(Blob|null)[]=[];private lwc:Coords|null=null;private ldc:Coords|null=null;private lnear=false;private lN=0;private lres=new Map<number,{raw:string|null;dec:string[];urls:string[];ok:boolean;p:Promise<void>}>();private want=-1;private lcur=-1;private fadeA=-1;private rid=0;private lraf=0;private lbox:Box|null=null;private lz=0;private byPlay=false;private pool:Pool|null=null;
 private front:string|null=null;private tok=0;private dtok=0;private stok=0;private dtimer=0;private errs=0;private worker:Worker|null=null;private wid=0;
 private pending=new Map<number,(r:any)=>void>();private cache=new Map<string,ImageBitmap|null>();private decUrl:string|null=null;private wurl:string|null=null;private wcache=new Map<string,WideEntry>();
 private mobile=matchMedia('(pointer:coarse)').matches;
 constructor(private map:maplibregl.Map,private h:Hooks){
 const go=()=>{this.dropLoop(false);this.front=null;this.wmeta=null;this.meta=null;if(this.on)void this.show();this.redrawDecoded()};
 map.on('style.load',go);
-map.on('moveend',()=>{this.checkLoop();this.scheduleDecode()});
+map.on('moveend',()=>this.scheduleDecode());
 map.on('move',()=>{if(this.on&&this.meta)this.applyOpacity()});
 map.on('error',e=>{
 const sid=String((e as unknown as {sourceId?:string}).sourceId??'');
@@ -52,12 +53,12 @@ get time():number|null{return this.frames[this.idx]??null}
 get ready(){return this.on&&this.frames.length>0}
 get cmapOk(){return this.cmapState==='ok'&&!!this.cmap?.usable}
 get lumFit():Fit|null{const f=this.lums.get(this.key);return f&&f.ok?f:null}
-get engEff():Eng{return this.eng==='v2'&&this.mode==='cmap'?'v2':'v1'}
+get engEff():Eng{return this.eng==='v2'&&(this.mode==='cmap'||this.mode==='vis')?'v2':'v1'}
 get can():boolean{const m=this.mode;return m==='cmap'?this.engEff==='v2'||this.cmapOk:m==='lum'?!!this.lumFit:m==='vis'}
-get views():View[]{return this.mode==='vis'?['raw','cloud']:this.engEff==='v2'?['raw','real']:['raw','enh','cold','conv','ot','cool','cloud']}
+get views():View[]{return this.engEff==='v2'?(this.mode==='vis'?['raw','e2']:['raw','real','e2']):this.mode==='vis'?['raw','cloud']:['raw','enh','cold','conv','ot','cool','cloud']}
 get btSource():string{return this.mode==='lum'?'estimated from source brightness, calibrated against GIBS':'decoded from GIBS colours'}
 private get wideZ(){const L=this.layer;return L?Math.min(this.cov==='fine'?5:4,L.maxzoom):4}
-curKey(){return`${this.view}|${this.thr}|${this.smoothLv}|${this.engEff}|${this.engEff==='v2'?realKey(this.real):''}`}
+curKey(){return`${this.view}|${this.thr}|${this.smoothLv}|${this.engEff}|${this.engEff==='v2'?v2Key(this.v2):''}`}
 async enable(on:boolean){
 this.on=on;
 if(!on){this.tok++;this.dtok++;this.stok++;this.saving=false;this.busy=false;this.removeAll();this.h.change();return}
@@ -149,22 +150,27 @@ await this.calibrate(L);this.scheduleDecode()}
 setIdx(i:number){
 if(!this.frames.length)return;
 const n=Math.max(0,Math.min(this.frames.length-1,i));
-if(this.loopMode){if(n===this.lcur)return;this.idx=n;this.stepLoop(this.lcur,n);return}
+if(this.loopMode){if(n===this.lcur&&this.want===n)return;this.idx=n;this.showLoop(n);return}
 if(n===this.idx&&this.front)return;
 this.idx=n;void this.show()}
 setOpacity(o:number){this.opacity=o;this.applyOpacity()}
-setMix(m:number){this.mix=m;this.applyOpacity()}
+setMix(m:number){this.mix=m;if(this.loopMode&&m<1&&!this.lneedRaw){this.invalidate();return}this.applyOpacity()}
+private mixFor(v:View){return v==='enh'||v==='cloud'||v==='real'||v==='e2'?1:0.5}
+private invalidate(){this.stok++;this.saving=false;this.dropLoop(true)}
 setEngine(e:Eng){
 this.eng=e;
-if(this.view!=='raw'&&!this.views.includes(this.view))this.view=this.engEff==='v2'?'real':'enh';
-this.mix=this.view==='enh'||this.view==='cloud'||this.view==='real'?1:0.5;
-this.wmeta=null;this.wbt=null;this.dropLoop(true);this.h.change();this.scheduleDecode()}
-setReal<K extends keyof RealP>(k:K,v:RealP[K]){this.real={...this.real,[k]:v};this.dropLoop(true);this.scheduleDecode()}
+if(this.view!=='raw'&&!this.views.includes(this.view))this.view=this.engEff==='v2'?(this.mode==='vis'?'e2':'real'):this.mode==='vis'?'cloud':'enh';
+this.mix=this.mixFor(this.view);
+this.wmeta=null;this.wbt=null;this.invalidate();this.h.change();this.scheduleDecode()}
+setV2(g:'real'|'enh'|'bg',k:string,v:string|number){
+if(g==='bg')this.v2.bg=v as V2P['bg'];
+else (this.v2[g] as unknown as Record<string,string|number>)[k]=v;
+this.invalidate();this.scheduleDecode()}
 setView(v:View){
-this.view=v;this.mix=v==='enh'||v==='cloud'||v==='real'?1:0.5;
-this.dropLoop(true);this.applyOpacity();this.h.change();this.scheduleDecode()}
-setThr(t:number){this.thr=t;this.dropLoop(true);this.scheduleDecode()}
-setSmooth(l:number){this.smoothLv=l;this.dropLoop(true);this.applyOpacity();this.h.change();this.scheduleDecode()}
+this.view=v;this.mix=this.mixFor(v);
+this.invalidate();this.applyOpacity();this.h.change();this.scheduleDecode()}
+setThr(t:number){this.thr=t;this.invalidate();this.scheduleDecode()}
+setSmooth(l:number){this.smoothLv=l;this.invalidate();this.applyOpacity();this.h.change();this.scheduleDecode()}
 setCov(c:Cov){this.cov=c;this.wmeta=null;this.wbt=null;this.applyOpacity();this.h.change();this.scheduleDecode()}
 setBorders(b:boolean){this.borders=b;this.ensureBorders();this.h.change()}
 setPlaying(p:boolean){this.playing=p;if(!p){if(this.saving&&this.byPlay)this.stopSaving();this.fadeMs=0;this.scheduleDecode()}}
@@ -177,7 +183,7 @@ const m=this.map;
 if(this.loopMode){
 if(this.front&&m.getLayer(this.front))m.setPaintProperty(this.front,'raster-opacity',0);
 for(const i of['sat-dec','sat-decw'])if(m.getLayer(i))m.setPaintProperty(i,'raster-opacity',0);
-const c=this.lcur<0?this.idx:this.lcur;this.lcur=c;this.paintLoop(c,c,1);return}
+this.showLoop(this.lcur<0?this.idx:this.lcur);return}
 if(this.front&&m.getLayer(this.front))m.setPaintProperty(this.front,'raster-opacity',this.rawOp());
 if(m.getLayer('sat-dec'))m.setPaintProperty('sat-dec','raster-opacity',this.vis(this.meta)?this.opacity*this.mix:0);
 if(m.getLayer('sat-decw'))m.setPaintProperty('sat-decw','raster-opacity',this.vis(this.wmeta)&&!this.covered()?this.opacity*this.mix:0)}
@@ -287,19 +293,22 @@ w.postMessage({id,kind,job})}).catch(()=>local())}
 private coordsOf(r:TileRng):Coords{
 const b=boxOf(r);
 return[[b.w,b.n],[b.e,b.n],[b.e,b.s],[b.w,b.s]]}
-private async process(L:SatLayer,t:number,r:TileRng,wide:boolean,sc1=false){
+private async job(L:SatLayer,t:number,r:TileRng,wide:boolean,hi:number|null=null){
 const w=(r.x1-r.x0+1)*TS,h=(r.y1-r.y0+1)*TS,view=this.view,mode=this.mode as Mode,src:Src=mode;
 const cur=await this.mosaic(L,t,r);
 let prev:Uint8ClampedArray|null=null;
 const pt=t-COOL_STEP,prevOk=this.frames.includes(pt);
 if(view==='cool'&&prevOk&&mode!=='vis')prev=await this.mosaic(L,pt,r);
 const native=!wide&&r.z===L.maxzoom&&this.map.getZoom()>=L.maxzoom-0.5;
-const eng=this.engEff,scale=!sc1&&w*h<=1100000&&(view==='enh'||view==='cold'||view==='cloud'||view==='real')?2:1;
+const eng=this.engEff,scale=eng==='v1'&&w*h<=1100000&&(view==='enh'||view==='cold'||view==='cloud')?2:1;
 const lum=mode==='lum'?(this.lumFit as Fit).lut:null,c=this.cmap;
-const job:DecodeIn={w,h,cur,prev,view,thr:this.thr,native,rgb:mode==='cmap'&&c&&eng==='v1'?c.rgb.slice():new Uint8Array(0),btv:mode==='cmap'&&c&&eng==='v1'?c.bt.slice():new Float32Array(0),lum,src,mask:diskArrays(r),smooth:this.smoothLv,scale,ppd:ppdOf(r.z),eng,real:{...this.real},ox:r.x0*TS,oy:r.y0*TS};
-const res=await this.call<DecodeOut>('decode',job);
-const meta:Meta={z:r.z,x0:r.x0,y0:r.y0,w,h,ow:res.ow,oh:res.oh,native,time:t,view,key:this.curKey(),stats:res.stats,prevOk,wide,src,box:boxOf(r),eng};
-return{res,meta}}
+const job:DecodeIn={w,h,cur,prev,view,thr:this.thr,native,rgb:mode==='cmap'&&c&&eng==='v1'?c.rgb.slice():new Uint8Array(0),btv:mode==='cmap'&&c&&eng==='v1'?c.bt.slice():new Float32Array(0),lum,src,mask:diskArrays(r),smooth:this.smoothLv,scale,ppd:ppdOf(r.z),eng,v2:JSON.parse(JSON.stringify(this.v2)),hi,ox:r.x0*TS,oy:r.y0*TS};
+const key=this.curKey(),box=boxOf(r);
+const mk=(res:{ow:number;oh:number;stats:Stats}):Meta=>({z:r.z,x0:r.x0,y0:r.y0,w,h,ow:res.ow,oh:res.oh,native,time:t,view,key,stats:res.stats,prevOk,wide,src,box,eng});
+return{job,mk}}
+private async process(L:SatLayer,t:number,r:TileRng,wide:boolean){
+const {job,mk}=await this.job(L,t,r,wide),res=await this.call<DecodeOut>('decode',job);
+return{res,meta:mk(res)}}
 async decode(){
 const L=this.layer,t=this.time;
 if(!this.on||!L||t==null||this.playing||this.busy||this.loopMode||this.saving)return;
@@ -359,12 +368,13 @@ if(tok!==this.dtok)return;
 await this.paint(res.out,res.ow,res.oh,r,meta.view==='conv'||meta.view==='ot');
 if(tok!==this.dtok)return;
 this.bt=res.bt;this.meta=meta}
-private async encode(px:Uint8ClampedArray,w:number,h:number):Promise<string>{
+private async encodeBlob(px:Uint8ClampedArray,w:number,h:number):Promise<Blob>{
 const cv=document.createElement('canvas');cv.width=w;cv.height=h;
 (cv.getContext('2d') as CanvasRenderingContext2D).putImageData(new ImageData(new Uint8ClampedArray(px),w,h),0,0);
 const blob=await new Promise<Blob|null>(res=>cv.toBlob(res,'image/png'));
 if(!blob)throw new Error('encode failed');
-return URL.createObjectURL(blob)}
+return blob}
+private async encode(px:Uint8ClampedArray,w:number,h:number):Promise<string>{return URL.createObjectURL(await this.encodeBlob(px,w,h))}
 private setImage(id:string,url:string,coords:Coords,nearest:boolean){
 const m=this.map;
 if(!m.getStyle())return;
@@ -394,85 +404,208 @@ async refreshInfo(){
 if(!supported()){this.cinfo='Local frame cache is not available in this browser';return}
 const i=await cacheInfo();
 this.cinfo=i?`${i.n.toLocaleString('en-US')} tiles saved on this device${i.bytes?`, about ${fmtBytes(i.bytes)}`:''}`:'Local frame cache is not available in this browser'}
+get buffering(){
+if(!this.loopMode)return false;
+const n=this.frames.length,nx=this.idx>=n-1?0:this.idx+1;
+return !this.lres.get(nx)?.ok}
+private get hasDec(){return this.lwide.length>0||this.ldet.length>0}
+private getPool(){
+if(!this.pool){const hc=typeof navigator!=='undefined'?navigator.hardwareConcurrency||4:4;this.pool=new Pool(Math.max(1,Math.min(this.mobile?3:4,hc-1)))}
+return this.pool}
+private async hist(job:DecodeIn):Promise<Hist>{
+const p=this.getPool();
+if(p.size){try{return await p.call<Hist>('hist',job)}catch{}}
+return histV2(job)}
+private async decBlob(job:DecodeIn):Promise<Blob>{
+type R={blob?:Blob;out?:Uint8ClampedArray;ow:number;oh:number};
+const p=this.getPool();
+let r:R;
+if(p.size){try{r=await p.call<R>('ldec',job)}catch{const o=run(job);r={out:o.out,ow:o.ow,oh:o.oh}}}
+else{const o=run(job);r={out:o.out,ow:o.ow,oh:o.oh}}
+return r.blob??await this.encodeBlob(r.out as Uint8ClampedArray,r.ow,r.oh)}
+private waitAll(ids:string[],on:(n:number)=>void,stall:number,alive:()=>boolean=()=>true):Promise<void>{
+const m=this.map;
+return new Promise(res=>{
+let last=-1,t0=performance.now();
+const ck=()=>{
+const n=ids.filter(i=>!i||!m.getSource(i)||m.isSourceLoaded(i)).length;
+if(n!==last){last=n;t0=performance.now();on(n)}
+if(n>=ids.length||!alive()||performance.now()-t0>stall){res();return}
+window.setTimeout(ck,100)};
+ck()})}
+private fits(){
+const L=this.layer;
+if(!L||!this.loopMode||this.lN!==this.frames.length)return false;
+const z=this.map.getZoom(),b=this.map.getBounds(),vb:Box={w:b.getWest(),s:b.getSouth(),e:b.getEast(),n:b.getNorth()};
+if(this.lneedRaw&&!(this.rbox&&inside(this.rbox,vb)&&Math.abs(Math.min(L.maxzoom,Math.round(z+1))-this.rz)<=1))return false;
+if(!this.hasDec)return true;
+if(!(this.lnear||z>=this.wideZ+0.5))return true;
+if(!this.lbox)return false;
+return inside(this.lbox,vb)&&(z-this.lz<=1.3||this.lz>=L.maxzoom)}
+private async tileBuf(k:number,z:number,x:number,y:number):Promise<ArrayBuffer|null>{
+const key=`${k}/${z}/${x}/${y}`,h=this.tstore.get(key);
+if(h)return h;
+const pt=this.pt;
+if(!pt)return null;
+const r=await fetch(tileUrl(pt.L,pt.times[k]).replace('{z}',String(z)).replace('{y}',String(y)).replace('{x}',String(x)));
+if(r.status===404)return null;
+if(!r.ok)throw new Error(`HTTP ${r.status}`);
+const b=await r.arrayBuffer();
+this.tstore.set(key,b);return b}
+private async ensureProto(){
+if(this.proto)return;
+const ml=(await import('maplibre-gl')).default;
+ml.addProtocol('satloop',async p=>{
+const m=/^satloop:\/\/(\d+)\/(\d+)\/(\d+)\/(\d+)/.exec(p.url);
+if(!m)throw new Error('bad tile');
+const k=+m[1],z=+m[2],x=+m[3],y=+m[4];
+this.tseen.add(`${z}/${x}/${y}`);
+const b=await this.tileBuf(k,z,x,y);
+if(!b)throw new Error('404');
+return{data:b.slice(0)}});
+this.proto=true}
 async saveLoop(byPlay=false):Promise<boolean>{
 const L=this.layer,m=this.map;
 if(!this.on||!L||!this.frames.length)return false;
-if(this.loopMode)return true;
+if(this.loopMode){if(byPlay&&this.fits())return true;this.dropLoop(false)}
 if(this.saving)return false;
 this.saving=true;this.byPlay=byPlay;this.errs=0;
-const my=++this.stok,N=this.frames.length,times=this.frames.slice(),dec=this.view!=='raw'&&this.can&&!!this.mode,steps=N*(dec?2:1);
-const raws:string[]=[],decs:string[]=[],urls:string[]=[],stale=()=>my!==this.stok||!this.saving||!this.on;
-let done=0,late=0,box:Box|null=null,rz=0;
-const prog=()=>{this.cstat=`Saving loop, step ${done} of ${steps}`;this.h.change()};
-const wipe=()=>{for(const id of[...raws,...decs])if(id)this.removeBuf(id);for(const u of urls)URL.revokeObjectURL(u)};
-prog();
-try{
-this.ensureBorders();
-for(let s0=0;s0<N&&!stale();s0+=6){
-const ids:string[]=[];
-for(let k=s0;k<Math.min(N,s0+6);k++){
-const id=this.lid(k,false);
+const my=++this.stok,N=this.frames.length,times=this.frames.slice(),view=this.view,dec=view!=='raw'&&this.can&&!!this.mode,needRaw=!dec||this.mix<1;
+const zoom=m.getZoom(),bb=m.getBounds(),vb:Box={w:bb.getWest(),s:bb.getSouth(),e:bb.getEast(),n:bb.getNorth()};
+const sets:{r:TileRng;wide:boolean}[]=[];
+if(dec){
+if(!(view==='conv'||view==='ot'))sets.push({r:wideRange(this.wideZ,L.maxzoom),wide:true});
+if(view==='conv'||view==='ot'||zoom>=this.wideZ+0.5)sets.push({r:tileRange(padBox(vb,0.25),zoom,L.maxzoom,this.mobile?36:49),wide:false})}
+const stale=()=>my!==this.stok||!this.saving||!this.on,calib=dec&&view==='e2'?Math.min(N,8):0,total=(needRaw?N:0)+sets.length*N+calib;
+let done=0,rawDone=0;
+const prog=()=>{this.cstat=`Saving loop, ${done+rawDone} of ${total}`;this.h.change()};
+const wide:(Blob|null)[]=[],det:(Blob|null)[]=[];
+let rbox:Box|null=null,rz2=0;
+const wipe=()=>{this.tstore.clear();this.tseen.clear()};
+const rawTask=async()=>{
+await this.ensureProto();
+this.pt={L,times};this.tstore.clear();this.tseen.clear();
+const id=this.lid(0);
 this.removeBuf(id);
-m.addSource(id,{type:'raster',tiles:[tileUrl(L,times[k])],tileSize:TS,maxzoom:L.maxzoom,attribution:L.attribution});
+m.addSource(id,{type:'raster',tiles:['satloop://0/{z}/{x}/{y}'],tileSize:TS,maxzoom:L.maxzoom,attribution:L.attribution});
 m.addLayer({id,type:'raster',source:id,paint:{'raster-opacity':HIDE,'raster-fade-duration':0,'raster-resampling':'linear'}},this.anchor0());
-raws[k]=id;ids.push(id)}
-await Promise.all(ids.map(id=>this.loaded(id,60000)));
-late+=ids.filter(id=>!m.isSourceLoaded(id)).length;done+=ids.length;prog()}
-if(dec&&!stale()){
-const b=m.getBounds(),vb:Box={w:b.getWest(),s:b.getSouth(),e:b.getEast(),n:b.getNorth()},cap=Math.max(4,Math.min(this.mobile?16:36,Math.floor((this.mobile?25e6:57e6)/(N*65536))));
-const r=tileRange(padBox(vb,0.2),m.getZoom(),L.maxzoom,cap),nearest=this.view==='conv'||this.view==='ot';
-box=boxOf(r);rz=r.z;
-for(let k=0;k<N&&!stale();k++){
-const ahead=k+1<N?this.mosaic(L,times[k+1],r).catch(()=>null):null,{res}=await this.process(L,times[k],r,false,true);
-const url=await this.encode(res.out,res.ow,res.oh);
-urls.push(url);
-if(stale())break;
-const id=this.lid(k,true);
+await this.waitAll([id],()=>{},45000,()=>!stale());
 this.removeBuf(id);
-m.addSource(id,{type:'image',url,coordinates:this.coordsOf(r)});
-m.addLayer({id,type:'raster',source:id,paint:{'raster-opacity':HIDE,'raster-fade-duration':0,'raster-resampling':nearest?'nearest':'linear'}},this.anchor0());
-decs[k]=id;done++;prog();
-await ahead}
-if(!stale())await Promise.all(decs.map(id=>this.loaded(id,30000)))}
-if(stale()){wipe();this.cstat=`Stopped at step ${done} of ${steps}, nothing was kept`;return false}
-await new Promise<void>(res=>{const t=window.setTimeout(res,2500);m.once('idle',()=>{clearTimeout(t);res()})});
-if(stale()){wipe();this.cstat=`Stopped at step ${done} of ${steps}, nothing was kept`;return false}
-this.lraw=raws;this.ldec=decs;this.lurls=urls;this.lbox=box;this.lz=rz;
-this.loopMode=true;this.lcur=-1;this.applyOpacity();
-this.cstat=`Loop saved on this device, ${N} frames${dec?' (decoded)':''}${this.errs?', some tiles were not returned':''}${late?`, ${late} frames were still loading`:''}`;
+if(stale())return;
+const keys=new Set(this.tseen),pr=tileRange(padBox(vb,0.3),zoom+1,L.maxzoom,this.mobile?40:64);
+for(let y=pr.y0;y<=pr.y1;y++)for(let x=pr.x0;x<=pr.x1;x++)keys.add(`${pr.z}/${x}/${y}`);
+const list=[...keys].map(k=>k.split('/').map(Number)),mz=Math.max(...list.map(t=>t[0])),top=list.filter(t=>t[0]===mz);
+const xs=top.map(t=>t[1]),ys=top.map(t=>t[2]);
+rbox={w:xToLon(Math.min(...xs),mz),e:xToLon(Math.max(...xs)+1,mz),n:yToLat(Math.min(...ys),mz),s:yToLat(Math.max(...ys)+1,mz)};rz2=mz;
+const jobs:number[][]=[];
+for(let k=0;k<N;k++)for(const t of list)jobs.push([k,t[0],t[1],t[2]]);
+let ji=0,jd=0;
+const lane=async()=>{while(!stale()){const i=ji++;if(i>=jobs.length)return;const [k,z,x,y]=jobs[i];try{await this.tileBuf(k,z,x,y)}catch{this.errs++}jd++;rawDone=Math.floor(jd/list.length);if(jd%12===0)prog()}};
+await Promise.all(Array.from({length:this.mobile?8:12},lane));
+rawDone=N;prog()};
+const decTask=async()=>{
+if(!sets.length)return;
+const pool=this.getPool(),lanes=(pool.size||1)+1;
+let hi:number|null=null;
+if(calib){
+const idx=Array.from({length:calib},(_,i)=>Math.round(i*(N-1)/Math.max(1,calib-1))),hs:Hist[]=[];
+let ci=0;
+const lane=async()=>{while(!stale()){const j=ci++;if(j>=idx.length)return;const {job}=await this.job(L,times[idx[j]],sets[0].r,sets[0].wide,null);hs[j]=await this.hist(job);done++;prog()}};
+await Promise.all(Array.from({length:Math.min(lanes,idx.length)},lane));
+if(stale())return;
+hi=hiOf(mergeHist(hs))}
+const tasks:{k:number;s:number}[]=[];
+for(let k=0;k<N;k++)for(let si=0;si<sets.length;si++)tasks.push({k,s:si});
+let ti=0;
+const lane=async()=>{while(!stale()){const i=ti++;if(i>=tasks.length)return;const {k,s:si}=tasks[i],{job}=await this.job(L,times[k],sets[si].r,sets[si].wide,hi),blob=await this.decBlob(job);(sets[si].wide?wide:det)[k]=blob;done++;prog()}};
+await Promise.all(Array.from({length:lanes},lane))};
+try{
+this.ensureBorders();prog();
+await Promise.all([needRaw?rawTask():Promise.resolve(),decTask()]);
+if(stale()){wipe();this.cstat=`Stopped at ${done+rawDone} of ${total}, nothing was kept`;return false}
+const ws=sets.find(x=>x.wide),ds=sets.find(x=>!x.wide);
+this.lneedRaw=needRaw;this.rbox=needRaw?rbox:null;this.rz=rz2;this.lwide=ws?wide:[];this.ldet=ds?det:[];this.lwc=ws?this.coordsOf(ws.r):null;this.ldc=ds?this.coordsOf(ds.r):null;
+this.lbox=ds?boxOf(ds.r):null;this.lz=ds?ds.r.z:0;this.lnear=view==='conv'||view==='ot';this.lN=N;
+this.loopMode=true;this.lcur=-1;this.want=-1;
+this.applyOpacity();
+await this.lres.get(this.idx)?.p;
+this.cstat=`Loop saved on this device, ${N} frames${dec?' (decoded)':''}${this.errs?', some tiles were not returned':''}`;
 return true
 }catch(e){
-wipe();this.cstat=`Loop could not be saved: ${e instanceof Error?e.message:'unknown error'}`;return false
+wipe();this.dropLoop(false);this.cstat=`Loop could not be saved: ${e instanceof Error?e.message:'unknown error'}`;return false
 }finally{
 this.saving=false;
+this.pool?.close();this.pool=null;
 await this.refreshInfo();this.h.change();
 if(!this.loopMode)this.scheduleDecode()}}
 stopSaving(){this.saving=false;this.stok++}
-private lid(k:number,d:boolean){return`sat-l${d?'d':'r'}${k}`}
+private lid(k:number){return`sat-lr${k}`}
+private resident(k:number){
+if(this.lres.has(k))return;
+const m=this.map,L=this.layer,dec:string[]=[],urls:string[]=[],all:string[]=[],u=++this.rid;
+let raw:string|null=null;
+if(!m.getStyle()||!L)return;
+if(this.lneedRaw){
+raw=`${this.lid(k)}.${u}`;
+m.addSource(raw,{type:'raster',tiles:[`satloop://${k}/{z}/{x}/{y}`],tileSize:TS,maxzoom:L.maxzoom,attribution:L.attribution});
+m.addLayer({id:raw,type:'raster',source:raw,paint:{'raster-opacity':HIDE,'raster-opacity-transition':{duration:0,delay:0},'raster-fade-duration':0,'raster-resampling':'linear'}},this.anchor0());
+all.push(raw)}
+const add=(bl:Blob|null|undefined,co:Coords|null,tag:string)=>{
+if(!bl||!co)return;
+const id=`sat-l${tag}${k}.${u}`,url=URL.createObjectURL(bl);
+urls.push(url);
+m.addSource(id,{type:'image',url,coordinates:co});
+m.addLayer({id,type:'raster',source:id,paint:{'raster-opacity':HIDE,'raster-opacity-transition':{duration:0,delay:0},'raster-fade-duration':0,'raster-resampling':this.lnear?'nearest':'linear'}},this.anchor0());
+dec.push(id);all.push(id)};
+add(this.lwide[k],this.lwc,'w');add(this.ldet[k],this.ldc,'d');
+const e={raw,dec,urls,ok:false,p:Promise.resolve()};
+e.p=this.waitAll(all,()=>{},15000).then(()=>{e.ok=true});
+this.lres.set(k,e)}
+private evict(k:number){
+const e=this.lres.get(k);
+if(!e)return;
+if(e.raw)this.removeBuf(e.raw);
+for(const id of e.dec)this.removeBuf(id);
+for(const u of e.urls)URL.revokeObjectURL(u);
+this.lres.delete(k)}
+private ensureRing(n:number){
+const N=this.lN,R=this.mobile?4:6,keep=new Set<number>();
+for(let i=0;i<Math.min(R,N);i++)keep.add((n+i)%N);
+if(this.lcur>=0)keep.add(this.lcur);
+if(this.fadeA>=0)keep.add(this.fadeA);
+for(const k of keep)this.resident(k);
+for(const k of[...this.lres.keys()])if(!keep.has(k))this.evict(k)}
 private paintLoop(a:number,b:number,f:number){
-const m=this.map,dec=this.ldec.length>0,w=(k:number)=>k===b?(a===b?1:f):k===a?1-f:0;
+const m=this.map,dec=this.hasDec,w=(k:number)=>k===b?(a===b?1:f):k===a?1-f:0;
 const set=(id:string,op:number)=>{if(m.getLayer(id))m.setPaintProperty(id,'raster-opacity',op)};
-for(let k=0;k<this.lraw.length;k++){const x=w(k);set(this.lraw[k],Math.max(HIDE,this.opacity*(dec?1-this.mix:1)*x))}
-for(let k=0;k<this.ldec.length;k++){const x=w(k);set(this.ldec[k],Math.max(HIDE,this.opacity*this.mix*x))}}
-private stepLoop(a:number,n:number){
+for(const [k,e] of this.lres){
+if(e.raw)set(e.raw,Math.max(HIDE,this.opacity*(dec?1-this.mix:1)*w(k)));
+for(const id of e.dec)set(id,Math.max(HIDE,this.opacity*this.mix*w(k)))}}
+private runPaint(a:number,n:number,fade:boolean){
 cancelAnimationFrame(this.lraf);
-if(this.fadeMs>0&&this.playing&&a>=0&&n===a+1){
-const t0=performance.now(),d=this.fadeMs,tick=(now:number)=>{const f=Math.min(1,(now-t0)/d);this.paintLoop(a,n,f);if(f<1)this.lraf=requestAnimationFrame(tick)};
+if(fade){
+this.fadeA=a;
+const t0=performance.now(),d=this.fadeMs,tick=(now:number)=>{
+const f=Math.min(1,(now-t0)/d);
+this.paintLoop(a,n,f);
+if(f<1)this.lraf=requestAnimationFrame(tick);
+else{this.fadeA=-1;if(this.loopMode&&this.lcur===n)this.ensureRing(n)}};
 this.lraf=requestAnimationFrame(tick)}
-else this.paintLoop(n,n,1);
-this.lcur=n}
+else{this.fadeA=-1;this.paintLoop(n,n,1)}}
+private showLoop(n:number){
+const a=this.lcur;
+this.want=n;this.ensureRing(n);
+const e=this.lres.get(n),go=()=>{
+if(this.want!==n||!this.loopMode)return;
+const fade=this.fadeMs>0&&this.playing&&a>=0&&n===a+1&&!!this.lres.get(a)?.ok;
+this.lcur=n;this.runPaint(a,n,fade);
+if(!fade)window.setTimeout(()=>{if(this.loopMode&&this.lcur===n)this.ensureRing(n)},0)};
+if(!e||e.ok)go();else void e.p.then(go)}
 dropLoop(restore=true){
 cancelAnimationFrame(this.lraf);
-const was=this.loopMode||this.lraw.length>0;
-for(const id of[...this.lraw,...this.ldec])if(id)this.removeBuf(id);
-for(const u of this.lurls)URL.revokeObjectURL(u);
-this.lraw=[];this.ldec=[];this.lurls=[];this.lbox=null;this.loopMode=false;this.lcur=-1;
+const was=this.loopMode;
+for(const k of[...this.lres.keys()])this.evict(k);
+this.tstore.clear();this.tseen.clear();this.pt=null;this.lneedRaw=false;this.rbox=null;this.lwide=[];this.ldet=[];this.lwc=null;this.ldc=null;this.lbox=null;this.loopMode=false;this.lcur=-1;this.want=-1;this.fadeA=-1;
 if(was&&this.playing){this.lost=true;this.h.change()}
 if(restore&&was&&this.on&&this.map.getStyle()){this.applyOpacity();void this.show()}}
-private checkLoop(){
-if(!this.loopMode||!this.lbox)return;
-const b=this.map.getBounds(),vb:Box={w:b.getWest(),s:b.getSouth(),e:b.getEast(),n:b.getNorth()};
-if(!inside(this.lbox,vb)||(this.map.getZoom()-this.lz>1.3&&this.lz<(this.layer?.maxzoom??0))){
-this.dropLoop(true);
-this.cstat='Saved loop cleared because the map moved outside the saved area. Press Play to save the new area';this.h.change()}}
 async clearSaved(){await clearCache();this.dropLoop(true);await this.refreshInfo();this.cstat='';this.h.change()}}
