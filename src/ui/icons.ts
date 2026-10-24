@@ -21,15 +21,19 @@ therm:'<path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z"/>',
 storm:'<circle cx="12" cy="12" r="2"/><path d="M12 10C12 6 8.5 4 5 5.5M12 14c0 4 3.5 6 7 4.5"/>',
 compare:'<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><path d="M12 5v14"/><path d="M7.5 10.5 6 12l1.5 1.5M16.5 10.5 18 12l-1.5 1.5"/>',
 field:'<path d="M3 7.5c3-3 6 3 9 0s6-3 9 0"/><path d="M3 12.5c3-3 6 3 9 0s6-3 9 0"/><path d="M3 17.5c3-3 6 3 9 0s6-3 9 0"/>',
-trash:'<path d="M5 7h14M10 7V4.5h4V7M7 7l.8 12.5h8.4L17 7"/>'};
+trash:'<path d="M5 7h14M10 7V4.5h4V7M7 7l.8 12.5h8.4L17 7"/>',
+fcst:'<path d="M4 4v15.5h16"/><path d="m7.5 15 3.5-4.5 3 2.5L19 7"/>',
+dec:'<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
+src:'<ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/>',
+chevl:'<path d="m15 6-6 6 6 6"/>',
+chevr:'<path d="m9 6 6 6-6 6"/>'};
 export function icon(n:string,s=20,fill=false){return`<svg class="i" width="${s}" height="${s}" viewBox="0 0 24 24" aria-hidden="true" fill="${fill?'currentColor':'none'}" stroke="${fill?'none':'currentColor'}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${P[n]??''}</svg>`}
 export const PLAYI='<svg class="i" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.5 5.5v13l10.5-6.5z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>';
 export const PAUSEI='<svg class="i" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="3.8" height="14" rx="1" fill="currentColor"/><rect x="13.7" y="5" width="3.8" height="14" rx="1" fill="currentColor"/></svg>';
 export const esc=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] as string));
-export const openCards=new Set<string>(['wind']);
+export const openCards=new Set<string>();
 export interface CardOpts{id:string;icon:string;label:string;sub?:string;sw?:{id:string;on:boolean};body?:string}
 export function card(o:CardOpts):string{
-const open=openCards.has(o.id),body=o.body??'';
-return`<section class="card${open?' open':''}" data-c="${o.id}"><div class="card-h"><button type="button" class="card-t" data-card="${o.id}" aria-expanded="${open}" aria-controls="cb-${o.id}"><span class="tile">${icon(o.icon,20)}</span><span class="lab"><b>${esc(o.label)}</b>${o.sub?`<small>${esc(o.sub)}</small>`:''}</span><span class="chev">${icon('chev',18)}</span></button>${o.sw?`<label class="swt"><span class="vh">${esc(o.label)}</span><input type="checkbox" role="switch" id="${o.sw.id}" ${o.sw.on?'checked':''}><span class="trk"></span></label>`:''}</div><div class="card-b" id="cb-${o.id}" ${open?'':'hidden'}>${body}</div></section>`}
+return`<section class="lay${o.sw&&!o.sw.on?' off':''}" data-c="${o.id}"><div class="lay-h"><span class="tile">${icon(o.icon,20)}</span><span class="lab"><b>${esc(o.label)}</b>${o.sub?`<small>${esc(o.sub)}</small>`:''}</span>${o.sw?`<label class="swt"><span class="vh">${esc(o.label)}</span><input type="checkbox" role="switch" id="${o.sw.id}" ${o.sw.on?'checked':''}><span class="trk"></span></label>`:''}</div><div class="lay-b">${o.body??''}</div></section>`}
 export function radios(name:string,label:string,items:{v:string;l:string;s?:string}[],cur:string){
 return`<div class="opts" role="radiogroup" aria-label="${esc(label)}">${items.map(x=>`<label class="opt"><input type="radio" name="${name}" value="${esc(x.v)}" ${x.v===cur?'checked':''}><span><b>${esc(x.l)}</b>${x.s?`<small>${esc(x.s)}</small>`:''}</span></label>`).join('')}</div>`}

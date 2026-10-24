@@ -12,11 +12,11 @@ import {WindLayer,type Quality} from './wind/particles';
 import {renderMeteogram,renderTable} from './ui/meteogram';
 import {SatController} from './sat/controller';
 import {registerSW} from './sat/store';
-import {satCard,satDecoderHtml,satDyn,satSig} from './sat/ui';
+import {satCard,satDecoderHtml,satDyn,satSig,VIEWS as DVIEWS} from './sat/ui';
 import type {View,Eng} from './sat/decode';
 import {TcController} from './tc/controller';
 import {tcCard,tcPanel,tcSig} from './tc/ui';
-import {esc,PLAYI,PAUSEI,card,radios,openCards} from './ui/icons';
+import {icon,esc,PLAYI,PAUSEI,card,radios} from './ui/icons';
 import {stationSvg} from './ui/station';
 import {pickTicks} from './ui/timeline';
 import {loadCmp,loadEns,type CmpData,type EnsData} from './data/compare';
@@ -55,7 +55,7 @@ if(msg&&retry){const b=document.createElement('button');b.type='button';b.classN
 
 function hasGL(){try{const c=document.createElement('canvas');return !!(c.getContext('webgl2')||c.getContext('webgl'))}catch{return false}}
 function field():Field|null{const g=st.grid;return g?{g:g.g,u:g.u[st.idx],v:g.v[st.idx]}:null}
-function applyWind(){if(!wind)return;const on=st.windOn||st.cmpMode==='split';wind.setField(on?field():null);if(on&&st.grid)wind.start();else wind.stop();$('legend').hidden=!(fld.active||(on&&st.grid));applyCompare()}
+function applyWind(){if(!wind)return;const on=st.windOn||st.cmpMode==='split';wind.setField(on?field():null);if(on&&st.grid)wind.start();else wind.stop();$('legend').hidden=!(fld.active||(on&&st.grid));applyCompare();updateRail()}
 const curT=()=>st.grid?st.grid.times[st.idx]:Math.floor(Date.now()/3600000)*3600;
 const nowIdx=(g:GridSet)=>{const n=Date.now()/1000;let k=0;for(let i=0;i<g.times.length;i++)if(g.times[i]<=n)k=i;return k};
 
@@ -77,7 +77,7 @@ map.on('mousemove',e=>{if(pend)return;pend=true;requestAnimationFrame(()=>{pend=
 map.on('mouseout',()=>{$('tip').hidden=true});map.on('movestart',()=>{$('tip').hidden=true});
 }catch{setStatus('The map could not start on this device. Search and forecasts still work.','err');map=null;wind=null}}
 
-const pad=()=>({top:72,bottom:mobile()?110:130,left:mobile()?12:330,right:mobile()?12:24});
+const pad=()=>({top:84,bottom:mobile()?240:130,left:mobile()?12:(panelOpen()?470:96),right:mobile()?12:84});
 const fmtLL=(lat:number,lon:number)=>`${Math.abs(lat).toFixed(3)}\u00b0 ${lat<0?'S':'N'}, ${Math.abs(lon).toFixed(3)}\u00b0 ${lon<0?'W':'E'}`;
 const coordName=(lat:number,lon:number)=>`${Math.abs(lat).toFixed(2)}${lat<0?'S':'N'} ${Math.abs(lon).toFixed(2)}${lon<0?'W':'E'}`;
 function readout(lat:number,lon:number,pt:{x:number;y:number}){
@@ -107,9 +107,8 @@ if(n<=240)for(let i=0;i<n;i++)if(!mj.has(i))h+=`<i class="tk" style="left:${x(i)
 for(const k of tk)h+=`<i class="tk mj${k.major?' dy':''}" style="left:${x(k.i)}%"><span>${k.major?fmtDay(k.t,st.tz):fmtHM(k.t,st.tz)}</span></i>`;
 el.innerHTML=h}
 function moveMark(){
-const n=frameTimes().length,f=n>1?cur()/(n-1):0,tr=$('track'),b=$('tl-time'),d=$('dock');
-$('marker').style.left=`${(f*100).toFixed(3)}%`;
-const bw=b.offsetWidth;b.style.left=`${Math.max(bw/2+8,Math.min(d.clientWidth-bw/2-8,tr.offsetLeft+f*tr.clientWidth))}px`}
+const n=frameTimes().length,f=n>1?cur()/(n-1):0;
+$('marker').style.left=`${(f*100).toFixed(3)}%`}
 function updateTime(){
 tc.setTime(tlTime());
 const g=st.grid,el=$('tl-time');
@@ -162,7 +161,7 @@ else marker.setLngLat([st.pin.lon,st.pin.lat])}
 let pctl:AbortController|null=null;
 async function selectPoint(p:Pin){
 if(!inAsia(p.lat,p.lon)){setStatus('That point is outside the Asian domain (25E to 180E, 12S to 80N).','warn');return}
-st.pin=p;placeMarker();renderTc();showCard('loc');
+st.pin=p;placeMarker();renderTc();showCard('loc');updateRail();
 await loadLocation()}
 async function loadLocation(){
 const p=st.pin;if(!p)return;
@@ -207,9 +206,9 @@ el.innerHTML=h;updateConditions();updateChart()}
 
 function renderDecoder(){
 const m=modelInfo(),g=st.grid;
-$('p-dec').innerHTML=satDecoderHtml(sc,st.tz)+`<h2>10 m wind field</h2><dl class="kv"><dt>Measures</dt><dd>Horizontal wind velocity 10 m above ground, computed by a numerical weather model</dd><dt>Units</dt><dd>Metres per second; knots shown in readouts</dd><dt>Product type</dt><dd>Model forecast, interpolated between grid points. Not an observation.</dd><dt>Model</dt><dd>${esc(m.name)} (${esc(m.org)}), ${esc(m.res)}</dd><dt>Run</dt><dd>${g?(g.run!=null?fmtTime(g.run,st.tz):'Not provided by source'):'No data loaded'}</dd><dt>Valid</dt><dd id="dec-valid">${g?fmtTime(g.times[st.idx],st.tz):'-'}</dd><dt>Delivered via</dt><dd>Open-Meteo API, fetched ${g?fmtTime(g.fetched,st.tz):'-'}</dd><dt>Field grid</dt><dd>${g?`${g.g.nx} by ${g.g.ny} points every ${g.g.d} deg, ${g.g.lon0}E to ${g.g.lon0+(g.g.nx-1)*g.g.d}E, ${g.g.lat0}N to ${g.g.lat0+(g.g.ny-1)*g.g.d}N`:'-'}</dd><dt>Level</dt><dd>10 m above ground (the only level in this build)</dd><dt>Colors</dt><dd>Particle color encodes speed on the legend scale. Particle length and trail follow direction.</dd></dl>
+$('p-dec').innerHTML=(satOn()?'':`<section class="lay off"><div class="lay-h"><span class="tile">${icon('sat',20)}</span><span class="lab"><b>Satellite is off</b><small>The decoder works on the satellite layer</small></span></div><div class="lay-b"><p class="note">Turn on a Himawari product to decode cloud temperature, convective candidates and cloud structure.</p><button type="button" class="btn pri" data-act="sat-on">Turn on satellite</button></div></section><section class="lay off"><div class="lay-h"><span class="tile">${icon('dec',20)}</span><span class="lab"><b>Decoder views</b><small>${DVIEWS.length} views, available with satellite on</small></span></div><div class="lay-b"><ul class="vl">${DVIEWS.map(v=>`<li><b>${esc(v[1])}</b><small>${esc(v[2])}</small></li>`).join('')}</ul></div></section>`)+satDecoderHtml(sc,st.tz)+`<details><summary>About the 10 m wind field</summary><dl class="kv"><dt>Measures</dt><dd>Horizontal wind velocity 10 m above ground, computed by a numerical weather model</dd><dt>Units</dt><dd>Metres per second; knots shown in readouts</dd><dt>Product type</dt><dd>Model forecast, interpolated between grid points. Not an observation.</dd><dt>Model</dt><dd>${esc(m.name)} (${esc(m.org)}), ${esc(m.res)}</dd><dt>Run</dt><dd>${g?(g.run!=null?fmtTime(g.run,st.tz):'Not provided by source'):'No data loaded'}</dd><dt>Valid</dt><dd id="dec-valid">${g?fmtTime(g.times[st.idx],st.tz):'-'}</dd><dt>Delivered via</dt><dd>Open-Meteo API, fetched ${g?fmtTime(g.fetched,st.tz):'-'}</dd><dt>Field grid</dt><dd>${g?`${g.g.nx} by ${g.g.ny} points every ${g.g.d} deg, ${g.g.lon0}E to ${g.g.lon0+(g.g.nx-1)*g.g.d}E, ${g.g.lat0}N to ${g.g.lat0+(g.g.ny-1)*g.g.d}N`:'-'}</dd><dt>Level</dt><dd>10 m above ground (the only level in this build)</dd><dt>Colors</dt><dd>Particle color encodes speed on the legend scale. Particle length and trail follow direction.</dd></dl>
 <details><summary>Method</summary><p>Each grid point supplies speed s and meteorological direction d (the direction the wind blows from). Components are u = -s sin(d) and v = -s cos(d), with u eastward and v northward. Each particle samples u and v by bilinear interpolation in longitude and latitude. If any of the four surrounding grid values is missing, the particle is removed instead of interpolating across the gap. Each frame a particle moves proportionally to its local speed in screen pixels, so apparent motion scales with wind speed but is not real-time displacement. Fields change in hourly steps with no temporal interpolation.</p></details>
-<h3>Limitations</h3><ul class="lim"><li>The field is sampled every 6 degrees, coarser than the model. Jets, tropical cyclone cores, sea breezes and terrain flows are smoothed or absent.</li><li>Forecast values at past hours are model output, not measurements.</li><li>Missing cells are left empty, never filled.</li><li>Radar and nowcasting are not in this build; satellite and cyclone layers describe themselves when enabled.</li></ul>`}
+<h3>Limitations</h3><ul class="lim"><li>The field is sampled every 6 degrees, coarser than the model. Jets, tropical cyclone cores, sea breezes and terrain flows are smoothed or absent.</li><li>Forecast values at past hours are model output, not measurements.</li><li>Missing cells are left empty, never filled.</li><li>Radar and nowcasting are not in this build; satellite and cyclone layers describe themselves when enabled.</li></ul></details>`}
 
 function renderSources(){
 const stat=(k:string)=>{const h=health.get(k);if(!h)return'No request made yet';if(h.ok)return`Responding${h.ms!=null?`, ${h.ms} ms`:''}${h.lastOk?`, last success ${fmtTime(h.lastOk/1000,st.tz)}`:''}`;return`Failing: ${esc(h.err??'unknown error')}${h.lastOk?`, last success ${fmtTime(h.lastOk/1000,st.tz)}`:''}`};
@@ -219,75 +218,76 @@ function renderTc(){if($('p-tc').hidden)return;$('p-tc').innerHTML=tcPanel(tc,st
 function tcChanged(){const g=tcSig(tc);if(g!==tcSigV){tcSigV=g;renderLayers()}if(!$('p-tc').hidden)renderTc();if(!$('p-src').hidden)renderSources()}
 function openTc(){showCard('tc')}
 function setModel(id:string){st.model=id;store.set('asiawx.model',id);fixB();fld.setModel(id);stop();void loadWind();if(st.pin)void loadLocation();if(st.cmpMode!=='off'){gridB=null;void loadB()}renderLayers()}
-function setBase(v:string){st.base=v;store.set('asiawx.base',v);map?.setStyle(STYLES[v]);syncRamp();buildLegend();renderLayers()}
+function setBase(v:string){st.base=v;$('app').classList.toggle('lt',v!=='dark');store.set('asiawx.base',v);map?.setStyle(STYLES[v]);syncRamp();buildLegend();renderLayers()}
+function renderModelSeg(){
+$('modelseg').innerHTML=MODELS.map(x=>`<label title="${esc(x.org)}, ${esc(x.res)}"><input type="radio" name="l-model" value="${x.id}" ${x.id===st.model?'checked':''}><span>${esc(x.name)}</span></label>`).join('')}
+function windCard(){
+return card({id:'wind',icon:'wind',label:'Wind particles',sub:'10 m wind, animated',sw:{id:'l-wind',on:st.windOn},body:`<div class="ctl"><label for="l-op">Opacity</label><input type="range" id="l-op" min="0.2" max="1" step="0.05" value="${st.opacity}"></div><div class="ctl"><label for="l-q">Particle density</label><select id="l-q"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div><p class="note">Density defaults to Low on touch and low-core devices. Animation starts off when reduced motion is requested.</p>`})}
+function updateRail(){
+const on:Record<string,boolean>={fc:!!st.pin,wx:st.windOn||fld.active||st.cmpMode!=='off',sat:satOn(),dec:satOn(),tc:tc.on,map:false,src:false};
+for(const b of document.querySelectorAll<HTMLElement>('#rail .rl')){const v=b.dataset.v as string;b.toggleAttribute('data-on',!!on[v])}}
 function renderLayers(){
-const a=document.activeElement as HTMLInputElement|null,host=$('p-lay');
-const fk=a&&host.contains(a)?(a.id?`#${a.id}`:a.name?`input[name="${a.name}"][value="${a.value}"]`:''):'';
-const m=modelInfo(),bs=BASES.find(b=>b.v===st.base);
-host.innerHTML=card({id:'model',icon:'model',label:'Forecast model',sub:`${m.name}, ${m.org}`,body:radios('l-model','Forecast model',MODELS.map(x=>({v:x.id,l:x.name,s:`${x.org}, ${x.res}`})),st.model)})
-+fldCard()
-+card({id:'wind',icon:'wind',label:'Wind',sub:'10 m particles',sw:{id:'l-wind',on:st.windOn},body:`<div class="ctl"><label for="l-op">Opacity</label><input type="range" id="l-op" min="0.2" max="1" step="0.05" value="${st.opacity}"></div><div class="ctl"><label for="l-q">Particle density</label><select id="l-q"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div><p class="note">Density defaults to Low on touch and low-core devices. Animation starts off when reduced motion is requested.</p>`})
-+cmpCard()+satCard(sc)+tcCard(tc)
-+card({id:'places',icon:'pin',label:'Places',sub:bookmarks().length?`${bookmarks().length} saved`:'None saved',body:placesHtml()})
-+card({id:'base',icon:'map',label:'Base map',sub:bs?bs.l:'',body:radios('l-base','Base map',BASES,st.base)});
-$<HTMLSelectElement>('l-q').value=st.quality;
+const a=document.activeElement as HTMLInputElement|null,host=$('panel');
+const fk=a&&host.contains(a)&&a.closest('.lay')?(a.id?`#${a.id}`:a.name?`input[name="${a.name}"][value="${a.value}"]`:''):'';
+const bs=BASES.find(b=>b.v===st.base);
+$('h-wx').innerHTML=windCard()+fldCard()+cmpCard();
+$('h-sat').innerHTML=satCard(sc);
+$('h-tc').innerHTML=tcCard(tc);
+$('h-map').innerHTML=card({id:'base',icon:'map',label:'Base map',sub:bs?bs.l:'',body:radios('l-base','Base map',BASES,st.base)})+card({id:'places',icon:'pin',label:'Saved places',sub:bookmarks().length?`${bookmarks().length} saved`:'None saved',body:placesHtml()});
+const q=document.getElementById('l-q') as HTMLSelectElement|null;if(q)q.value=st.quality;
+renderModelSeg();updateRail();
 if(fk){const f=host.querySelector<HTMLElement>(fk);f?.focus()}}
 
-const CT=['loc','cmp','his','tc'],IT=['src','dec'];
+const FT=['loc','cmp','his'],VIEWS=['fc','wx','sat','dec','tc','map','src'];
+const VT:Record<string,[string,string]>={fc:['Forecast','Point forecast, model comparison and history'],wx:['Weather layers','Model maps, wind and model comparison'],sat:['Satellite','Himawari imagery and saved loops'],dec:['Cloud Decoder','Decode temperature and cloud structure from imagery'],tc:['Tropical cyclones','Active storms, tracks and warnings'],map:['Map and places','Base map and saved places'],src:['Data sources','Where each layer comes from and its status']};
+let view='wx',fsub='loc';
+const panelOpen=()=>!$('app').classList.contains('pclosed');
 function setTabs(list:string[],n:string){for(const t of list){const on=t===n;$(`t-${t}`).setAttribute('aria-selected',String(on));$(`t-${t}`).tabIndex=on?0:-1;$(`p-${t}`).hidden=!on}}
-function onTab(n:string){if(n==='tc')renderTc();else if(n==='cmp'){renderCmp();void ensureCmp()}else if(n==='his'){renderHis();void ensureHis()}}
-function showCard(n:string){setTabs(CT,n);$('card').hidden=false;onTab(n);if(mobile())setMenu(false)}
-function closeCard(){$('card').hidden=true}
-const menuOpen=()=>mobile()?$('menu').classList.contains('open'):!$('menu').classList.contains('shut');
-function setMenu(o:boolean){const m=$('menu');if(mobile()){m.classList.toggle('open',o);m.classList.remove('shut')}else{m.classList.toggle('shut',!o);m.classList.remove('open')}$('menubtn').setAttribute('aria-expanded',String(o));if(mobile()&&o)closeCard()}
-let infoFrom:HTMLElement|null=null;
-function openInfo(tab?:string){if(tab)setTabs(IT,tab);renderSources();renderDecoder();infoFrom=document.activeElement as HTMLElement|null;$('info').hidden=false;($('info').querySelector('.dlg') as HTMLElement).focus()}
-function closeInfo(){$('info').hidden=true;infoFrom?.focus();infoFrom=null}
+function onTab(n:string){if(n==='cmp'){renderCmp();void ensureCmp()}else if(n==='his'){renderHis();void ensureHis()}}
+function setPanel(o:boolean){$('app').classList.toggle('pclosed',!o);for(const b of document.querySelectorAll<HTMLElement>('#rail .rl'))b.setAttribute('aria-pressed',String(o&&b.dataset.v===view));if(map&&!mobile())setTimeout(()=>map?.resize(),0)}
+function setView(v:string,open=true){
+view=v;for(const x of VIEWS)$(`v-${x}`).hidden=x!==v;
+$('ptitle').textContent=VT[v][0];$('psub').textContent=VT[v][1];
+$('p-tc').hidden=v!=='tc';$('p-dec').hidden=v!=='dec';$('p-src').hidden=v!=='src';
+if(v==='fc'){setTabs(FT,fsub);onTab(fsub)}else for(const t of FT)$(`p-${t}`).hidden=true;
+if(v==='tc')renderTc();else if(v==='dec')renderDecoder();else if(v==='src')renderSources();
+setPanel(open)}
+function showCard(n:string){if(n==='tc')setView('tc');else{fsub=n;setView('fc')}}
+function closeCard(){setPanel(false)}
 function tabKeys(host:HTMLElement,list:string[],pick:(n:string)=>void){
 host.addEventListener('click',e=>{const b=(e.target as HTMLElement).closest('button[role=tab]');if(b)pick(b.id.slice(2))});
 host.addEventListener('keydown',e=>{const i=list.findIndex(t=>$(`t-${t}`).getAttribute('aria-selected')==='true'),d=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(d){const n=list[(i+d+list.length)%list.length];pick(n);$(`t-${n}`).focus()}})}
+function setTz(t:Tz){st.tz=t;$('tz-u').setAttribute('aria-pressed',String(t==='UTC'));$('tz-l').setAttribute('aria-pressed',String(t!=='UTC'));updateTime();renderTicks();renderDecoder();renderSources();renderTc();renderCmp();renderHis();if(st.pin)renderLocation(st.point?'ok':'loading')}
 
 let ptimer=0;
 function stop(){st.playing=false;sc?.setPlaying(false);clearInterval(ptimer);$('play').innerHTML=PLAYI;$('play').setAttribute('aria-label','Play timeline')}
 function play(){const n=()=>satOn()&&sc?sc.frames.length:st.grid?st.grid.times.length:0;if(!n())return;st.playing=true;sc?.setPlaying(true);$('play').innerHTML=PAUSEI;$('play').setAttribute('aria-label','Pause timeline');clearInterval(ptimer);
-const sp=+$<HTMLSelectElement>('speed').value,go=()=>{if(sc)sc.fadeMs=Math.min(350,Math.round(sp*0.85));ptimer=window.setInterval(()=>{if(satOn()&&(sc?.busy||sc?.buffering))return;const c=cur();setIdx(c>=n()-1?0:c+1)},sp)};
+const sp=+(document.querySelector('#speedseg [aria-pressed="true"]') as HTMLElement).dataset.ms!,go=()=>{if(sc)sc.fadeMs=Math.min(350,Math.round(sp*0.85));ptimer=window.setInterval(()=>{if(satOn()&&(sc?.busy||sc?.buffering))return;const c=cur();setIdx(c>=n()-1?0:c+1)},sp)};
 if(satOn()&&sc&&!sc.loopMode){void sc.saveLoop(true).then(ok=>{if(!st.playing)return;if(!ok){stop();return}go()});return}
 go()}
 
 function initUi(){
+$('app').classList.toggle('lt',st.base!=='dark');
 $('play').innerHTML=PLAYI;
-$('tz').addEventListener('click',()=>{st.tz=st.tz==='UTC'?'Local':'UTC';const b=$('tz');b.textContent=st.tz==='UTC'?'UTC':'Local';b.setAttribute('aria-label',`Time zone: ${b.textContent}. Activate to switch`);updateTime();renderTicks();renderDecoder();renderSources();renderTc();renderCmp();renderHis();if(st.pin)renderLocation(st.point?'ok':'loading')});
+$('tz-u').addEventListener('click',()=>setTz('UTC'));$('tz-l').addEventListener('click',()=>setTz('Local'));
 $('play').addEventListener('click',()=>st.playing?stop():play());
 $('prev').addEventListener('click',()=>{stop();setIdx(cur()-1)});
 $('next').addEventListener('click',()=>{stop();setIdx(cur()+1)});
 $('slider').addEventListener('input',e=>{stop();setIdx(+(e.target as HTMLInputElement).value)});
 $('now').addEventListener('click',()=>{stop();if(satOn()&&sc)setFrame(sc.frames.length-1);else if(st.grid)setWindIdx(nowIdx(st.grid))});
-$('speed').addEventListener('change',()=>{if(st.playing)play()});
+$('speedseg').addEventListener('click',e=>{let b=(e.target as HTMLElement).closest('button[data-ms]') as HTMLElement|null;if(!b)return;if(mobile()){const all=[...$('speedseg').querySelectorAll<HTMLElement>('button')];b=all[(all.indexOf(b)+1)%all.length]}for(const x of $('speedseg').querySelectorAll('button'))x.setAttribute('aria-pressed',String(x===b));if(st.playing)play()});
 $('zin').addEventListener('click',()=>map?.zoomIn());
 $('zout').addEventListener('click',()=>map?.zoomOut());
 $('fit').addEventListener('click',()=>map?.fitBounds(START,{padding:pad()}));
-$('menubtn').addEventListener('click',()=>setMenu(!menuOpen()));
-$('mclose').addEventListener('click',()=>setMenu(false));
-$('cclose').addEventListener('click',closeCard);
-$('infobtn').addEventListener('click',()=>openInfo());
-$('iclose').addEventListener('click',closeInfo);
-$('info').addEventListener('click',e=>{if((e.target as HTMLElement).dataset.close)closeInfo()});
-document.addEventListener('keydown',e=>{
-if($('info').hidden)return;
-if(e.key==='Escape'){closeInfo();return}
-if(e.key!=='Tab')return;
-const f=[...$('info').querySelectorAll<HTMLElement>('button,input,select,summary,a[href],[tabindex="0"]')].filter(x=>!x.closest('[hidden]')&&x.tabIndex>=0);
-if(!f.length)return;
-const a=f[0],z=f[f.length-1],cu=document.activeElement,dlg=$('info').querySelector('.dlg');
-if(e.shiftKey&&(cu===a||cu===dlg)){e.preventDefault();z.focus()}else if(!e.shiftKey&&cu===z){e.preventDefault();a.focus()}});
-tabKeys($('ctabs'),CT,n=>{setTabs(CT,n);onTab(n)});
-tabKeys($('itabs'),IT,n=>setTabs(IT,n));
+$('pclose').addEventListener('click',closeCard);
+for(const b of document.querySelectorAll<HTMLElement>('#rail .rl'))b.addEventListener('click',()=>{const v=b.dataset.v as string;if(v===view&&panelOpen())setPanel(false);else setView(v)});
+tabKeys($('fcseg'),FT,n=>{fsub=n;setTabs(FT,n);onTab(n)});
 $('p-cmp').addEventListener('change',e=>{const t=e.target as HTMLInputElement;if(t.name==='cv')cm.cv=t.value;else if(t.name==='ce')cm.ei=t.value;else if(t.name==='cev')cm.ev=t.value;else return;renderCmp();document.querySelector<HTMLInputElement>(`#p-cmp input[name="${t.name}"][value="${t.value}"]`)?.focus()});
 $('p-cmp').addEventListener('click',e=>{const b=(e.target as HTMLElement).closest('[data-act]') as HTMLElement|null;if(!b)return;if(b.dataset.act==='cmp-retry')void ensureCmp(true);else if(b.dataset.act==='ens-retry')void ensureEns(true)});
 $('p-his').addEventListener('click',e=>{const b=(e.target as HTMLElement).closest('[data-act]') as HTMLElement|null;if(b?.dataset.act==='his-retry')void ensureHis(true)});
-matchMedia('(max-width:760px)').addEventListener('change',()=>{setMenu(!mobile());closeCard();renderTicks();moveMark();map?.resize()});
+matchMedia('(max-width:760px)').addEventListener('change',()=>{setPanel(!mobile());renderTicks();moveMark();map?.resize()});
 new ResizeObserver(()=>{renderTicks();moveMark()}).observe($('track'));
-$('p-lay').addEventListener('change',e=>{const t=e.target as HTMLInputElement;
+$('panel').addEventListener('change',e=>{const t=e.target as HTMLInputElement;
 if(t.name==='l-model'){setModel(t.value);return}
 if(t.name==='l-base'){setBase(t.value);return}
 if(t.name==='l-fld'){const k=t.value==='off'?null:t.value;store.set('asiawx.fld',k??'off');fld.setKey(k);return}
@@ -303,15 +303,14 @@ if(!sc)return;
 if(t.id==='l-sat'){stop();void sc.enable(t.checked).then(()=>{if(!sc?.on)t.checked=false;satChanged()})}
 else if(t.name==='l-sp'){stop();void sc.selectLayer(t.value)}
 else if(t.id==='l-sb')sc.setBorders(t.checked)});
-$('p-lay').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='l-fo'){fld.setOpacity(+t.value);return}
+$('panel').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='l-fo'){fld.setOpacity(+t.value);return}
 if(t.id==='l-op'){st.opacity=+t.value;wind?.setOpacity(st.opacity);wind2?.setOpacity(st.opacity)}else if(t.id==='l-so')sc?.setOpacity(+t.value)});
-$('p-lay').addEventListener('click',e=>{
-const el=e.target as HTMLElement,ct=el.closest('.card-t') as HTMLElement|null;
-if(ct){const id=ct.dataset.card as string,sec=ct.closest('.card') as HTMLElement,o=!openCards.has(id);if(o)openCards.add(id);else openCards.delete(id);sec.classList.toggle('open',o);ct.setAttribute('aria-expanded',String(o));(sec.querySelector('.card-b') as HTMLElement).hidden=!o;return}
+$('panel').addEventListener('click',e=>{
+const el=e.target as HTMLElement;
 const b=el.closest('button') as HTMLElement|null;if(!b)return;
 const a=b.dataset.act,i=Number(b.dataset.i),bm=bookmarks();
-if(a==='opentc')openTc();
-else if(a==='fld-retry')void fld.load();
+if(a==='fld-retry')void fld.load();
+else if(a==='sat-on'&&sc){stop();void sc.enable(true).then(()=>satChanged())}
 else if(a==='go'&&bm[i]){map?.flyTo({center:[bm[i].lon,bm[i].lat],zoom:6});void selectPoint(bm[i])}
 else if(a==='del'){bm.splice(i,1);store.set('asiawx.bm',JSON.stringify(bm));renderLayers();if(st.pin)renderLocation(st.point?'ok':'loading')}
 else if(sc){if(b.id==='l-save'){if(sc.saving)sc.stopSaving();else void sc.saveLoop()}else if(b.id==='l-clear')void sc.clearSaved()}});
@@ -329,6 +328,7 @@ const b=(e.target as HTMLElement).closest('[data-act]') as HTMLElement|null;if(!
 const a=b.dataset.act;
 if(a==='save'&&st.pin){const bm=bookmarks();if(!isSaved(st.pin)){bm.push(st.pin);store.set('asiawx.bm',JSON.stringify(bm))}renderLocation(st.point?'ok':'loading');renderLayers()}
 else if(a==='retry')void loadLocation()});
+$('modelseg').addEventListener('change',e=>{const t=e.target as HTMLInputElement;if(t.name==='l-model')setModel(t.value)});
 initSearch()}
 
 const cm={cv:'temperature_2m',ev:'temperature_2m',ei:'',cmp:null as CmpData|null,ens:null as EnsData|null,cs:'idle' as LS,es:'idle' as LS,key:'',ekey:''};
@@ -433,4 +433,4 @@ else if(e.key==='Enter'){const c=parseCoord(q.value.trim());if(c)choose(c);else 
 ul.addEventListener('pointerdown',e=>{const li=(e.target as HTMLElement).closest('li[data-i]') as HTMLElement|null;if(li){e.preventDefault();choose(items[+(li.dataset.i as string)])}});
 document.addEventListener('pointerdown',e=>{if(!(e.target as HTMLElement).closest('.search'))close()})}
 
-initCompare();registerSW();initUi();buildLegend();renderLayers();renderLocation('ok');renderDecoder();renderSources();setTabs(CT,'loc');setTabs(IT,'src');setMenu(!mobile());initMap();{const k=store.get('asiawx.fld');fld.configure(st.model,k&&k!=='off'?k:null)}tc.start();updateTime();applyWind();void loadWind();
+initCompare();registerSW();initUi();buildLegend();renderLayers();renderLocation('ok');renderDecoder();renderSources();setView('wx',!mobile());initMap();{const k=store.get('asiawx.fld');fld.configure(st.model,k&&k!=='off'?k:null)}tc.start();updateTime();applyWind();void loadWind();

@@ -13,12 +13,12 @@ const km=(m:number)=>`${Math.round(m/1000)} km (${Math.round(m/1852)} nm)`;
 export const tcSig=(c:TcController|null)=>c?`${c.on}|${c.state}|${c.opts.prob}|${c.opts.warn}|${c.opts.past}|${c.opts.radii}|${c.opts.danger}|${c.data?c.data.storms.filter(x=>x.jt).length:0}`:'none';
 export function tcCard(c:TcController|null):string{
 if(!c)return'';
-const cb=(id:string,l:string,v:boolean)=>`<div class="ctl"><label class="chk"><input type="checkbox" id="${id}" ${v?'checked':''}> ${l}</label></div>`;
+const cb=(id:string,l:string,v:boolean)=>`<label class="chip"><input type="checkbox" id="${id}" ${v?'checked':''}><span>${l}</span></label>`;
 const n=c.data?c.data.storms.length:0;
 const jt=c.data?.storms.some(x=>x.jt)??false;
 const sub=!c.on?'Off':c.state==='loading'&&!c.data?'Loading':c.state==='err'&&!c.data?'Unavailable':`${n} active${jt?', with wind radii':', JMA'}`;
 const key=c.on&&(c.opts.radii||c.opts.danger)?`<div class="lgk">${c.opts.radii?'<span><i style="border-color:#ffd54a"></i>34 kt</span><span><i style="border-color:#ff9a3d"></i>50 kt</span><span><i style="border-color:#ff4d5e"></i>64 kt</span>':''}${c.opts.danger?'<span><i class="dz" style="border-color:#ffd54a"></i>34 kt danger area</span>':''}</div>`:'';
-const body=`${c.on?cb('l-tcr','Wind radii, 34 / 50 / 64 kt',c.opts.radii)+cb('l-tcd','34 kt danger area along the forecast',c.opts.danger)+cb('l-tcp','Probability circles',c.opts.prob)+cb('l-tcw','JMA gale and storm areas',c.opts.warn)+cb('l-tcpast','Past track',c.opts.past)+key+'<div class="ctl"><span></span><button type="button" class="btn sm" data-act="opentc">View storms</button></div>':''}<p class="note">${c.state==='loading'?'Loading cyclone data':c.state==='err'?esc(c.err):`Positions, tracks, probability circles and the JMA warning areas are JMA values. ${jt?'Wind radii come from JTWC warnings and use 1-minute winds.':'Wind radii need a matching JTWC warning, and none is available right now.'} The timeline ring is interpolated between official forecast points.`}</p>`;
+const body=`<div class="chips">${cb('l-tcr','Wind radii',c.opts.radii)+cb('l-tcd','34 kt danger area',c.opts.danger)+cb('l-tcp','Probability circles',c.opts.prob)+cb('l-tcw','Gale and storm areas',c.opts.warn)+cb('l-tcpast','Past track',c.opts.past)}</div>${key}<p class="note">${c.state==='loading'?'Loading cyclone data':c.state==='err'?esc(c.err):`Positions, tracks, probability circles and the JMA warning areas are JMA values. ${jt?'Wind radii come from JTWC warnings and use 1-minute winds.':'Wind radii need a matching JTWC warning, and none is available right now.'} The timeline ring is interpolated between official forecast points.`}</p>`;
 return card({id:'tc',icon:'tc',label:'Cyclones',sub,sw:{id:'l-tc',on:c.on},body})}
 function chart(s:Storm):string{
 const f=fixes(s).filter(x=>x.windKt!=null);

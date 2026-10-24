@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0b1118">
+<meta name="theme-color" content="#0a1018">
 <title>AsiaWX - Asian weather analysis</title>
 <meta name="description" content="Model forecasts, wind fields, satellite and tropical cyclone information for Asia and the Western Pacific, with the source, model run and valid time shown for every dataset.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%230f1a24'/%3E%3Cpath d='M2.5 6h7a2 2 0 1 0-2-2M2.5 10h9a2 2 0 1 1-2 2' fill='none' stroke='%236ec1ff' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E">
@@ -22,64 +22,41 @@
 <div id="tip" aria-live="off" hidden></div>
 </main>
 <header id="bar">
-<div class="grp">
+<div class="brand" aria-label="AsiaWX"><span class="logo"><svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9h10.5a3 3 0 1 0-3-3M3 14.5h14a3 3 0 1 1-3 3"/></svg></span><span class="bn"><b>AsiaWX</b><small>Asian weather analysis</small></span></div>
 <div class="search">
 <svg class="i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></svg>
-<input id="q" type="search" role="combobox" aria-expanded="false" aria-controls="results" aria-autocomplete="list" autocomplete="off" placeholder="Search place" aria-label="Search place or coordinates">
-<button id="locate" type="button" class="bare" aria-label="Use my location" title="Use my location"><svg class="i" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22"/></svg></button>
+<input id="q" type="search" role="combobox" aria-expanded="false" aria-controls="results" aria-autocomplete="list" autocomplete="off" placeholder="Search a place or enter coordinates" aria-label="Search place or coordinates">
+<button id="locate" type="button" class="bare" aria-label="Use my location" title="Use my location"><svg class="i" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22"/></svg></button>
 <ul id="results" role="listbox" hidden></ul>
 </div>
-<button id="zin" type="button" class="rb zoom" aria-label="Zoom in" title="Zoom in"><svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4M11 8v6M8 11h6"/></svg></button>
-<button id="zout" type="button" class="rb zoom" aria-label="Zoom out" title="Zoom out"><svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4M8 11h6"/></svg></button>
-<button id="menubtn" type="button" class="rb" aria-label="Layers" aria-expanded="true" aria-controls="menu" title="Layers"><svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 12.5 9 5 9-5"/><path d="m3 16.5 9 5 9-5"/></svg></button>
-<button id="fit" type="button" class="rb zoom" aria-label="Fit to Asia" title="Fit to Asia"><svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="2"/></svg></button>
-</div>
-<div class="grp">
-<button id="tz" type="button" class="pillb" aria-label="Time zone: UTC. Activate to switch" title="Switch UTC / local time">UTC</button>
-<button id="full" type="button" class="rb fs" aria-label="Toggle fullscreen" title="Fullscreen"><svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg></button>
-<button id="infobtn" type="button" class="rb" aria-label="Data, sources and decoder" aria-haspopup="dialog" title="Data and sources"><svg class="i" width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v6"/><circle cx="12" cy="7.6" r=".6" fill="currentColor"/></svg></button>
-</div>
+<div class="bar-sp"></div>
+<div class="barg"><span class="barl">Model</span><div id="modelseg" class="seg" role="radiogroup" aria-label="Forecast model"></div></div>
+<div class="barg"><span class="barl">Time</span><div class="seg" role="group" aria-label="Time zone"><button type="button" id="tz-u" aria-pressed="true">UTC</button><button type="button" id="tz-l" aria-pressed="false">Local</button></div></div>
 </header>
-<nav id="menu" aria-label="Map layers">
-<div class="sheet-h"><b>Layers</b><button id="mclose" type="button" class="rb sm" aria-label="Close layers"><svg class="i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-<div id="p-lay" class="stack"></div>
-</nav>
-<aside id="card" aria-label="Forecast, comparison, history and storms" hidden>
-<div class="card-top">
-<div role="tablist" id="ctabs" aria-label="Forecast, compare, history or storms">
-<button role="tab" id="t-loc" aria-controls="p-loc" aria-selected="true" type="button">Forecast</button>
-<button role="tab" id="t-cmp" aria-controls="p-cmp" aria-selected="false" type="button" tabindex="-1">Compare</button>
-<button role="tab" id="t-his" aria-controls="p-his" aria-selected="false" type="button" tabindex="-1">History</button>
-<button role="tab" id="t-tc" aria-controls="p-tc" aria-selected="false" type="button" tabindex="-1">Storms</button>
+<nav id="rail" aria-label="Sections"><button type="button" class="rl" data-v="fc" id="r-fc" aria-controls="v-fc" aria-pressed="false"><span class="rl-i"><svg class="i" width="21" height="21" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v15.5h16"/><path d="m7.5 15 3.5-4.5 3 2.5L19 7"/></svg></span><span class="rl-t">Forecast</span><span class="rl-d" aria-hidden="true"></span></button><button type="button" class="rl" data-v="wx" id="r-wx" aria-controls="v-wx" aria-pressed="false"><span class="rl-i"><svg class="i" width="21" height="21" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5h9.5a3 3 0 1 0-3-3M3 12.5h14a3 3 0 1 1-3 3M3 16.5h6.5a2.5 2.5 0 1 1-2.5 2.5"/></svg></span><span class="rl-t">Weather</span><span class="rl-d" aria-hidden="true"></span></button><button type="button" class="rl" data-v="sat" id="r-sat" aria-controls="v-sat" aria-pressed="false"><span class="rl-i"><svg class="i" width="21" height="21" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><g transform="rotate(45 12 12)"><rect x="9.6" y="8.5" width="4.8" height="7" rx="1"/><path d="M9.6 10.2H4.8v3.6h4.8M14.4 10.2h4.8v3.6h-4.8M12 8.5V5.5M12 15.5v3"/></g></svg></span><span class="rl-t">Satellite</span><span class="rl-d" aria-hidden="true"></span></button><button type="button" class="rl" data-v="dec" id="r-dec" aria-controls="v-dec" aria-pressed="false"><span class="rl-i"><svg class="i" width="21" height="21" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></span><span class="rl-t">Decoder</span><span class="rl-d" aria-hidden="true"></span></button><button type="button" class="rl" data-v="tc" id="r-tc" aria-controls="v-tc" aria-pressed="false"><span class="rl-i"><svg class="i" width="21" height="21" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2.2"/><path d="M12 9.8C12 5.6 8.2 3.4 4.3 5.2M12 14.2c0 4.2 3.8 6.4 7.7 4.6"/><path d="M9.8 12C5.6 12 3.4 15.8 5.2 19.7M14.2 12c4.2 0 6.4-3.8 4.6-7.7" opacity=".55"/></svg></span><span class="rl-t">Storms</span><span class="rl-d" aria-hidden="true"></span></button><button type="button" class="rl" data-v="map" id="r-map" aria-controls="v-map" aria-pressed="false"><span class="rl-i"><svg class="i" width="21" height="21" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 6.5 5.5-2.5 6 2.5 5.5-2.5v13l-5.5 2.5-6-2.5-5.5 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg></span><span class="rl-t">Map</span><span class="rl-d" aria-hidden="true"></span></button><span class="rl-sp"></span><button type="button" class="rl" data-v="src" id="r-src" aria-controls="v-src" aria-pressed="false"><span class="rl-i"><svg class="i" width="21" height="21" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg></span><span class="rl-t">Sources</span></button></nav>
+<aside id="panel" aria-labelledby="ptitle">
+<div class="ph"><div><h1 id="ptitle">Weather layers</h1><p id="psub"></p></div><button id="pclose" type="button" class="rb sm" aria-label="Collapse panel" title="Collapse panel"><svg class="i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button></div>
+<div class="pb">
+<section id="v-fc" hidden><div id="fcseg" class="seg wide" role="tablist" aria-label="Forecast views"><button role="tab" id="t-loc" aria-controls="p-loc" aria-selected="true" type="button">Overview</button><button role="tab" id="t-cmp" aria-controls="p-cmp" aria-selected="false" type="button" tabindex="-1">Compare models</button><button role="tab" id="t-his" aria-controls="p-his" aria-selected="false" type="button" tabindex="-1">History</button></div>
+<div id="p-loc" role="tabpanel" aria-labelledby="t-loc"></div><div id="p-cmp" role="tabpanel" aria-labelledby="t-cmp" hidden></div><div id="p-his" role="tabpanel" aria-labelledby="t-his" hidden></div></section>
+<section id="v-wx"><div id="h-wx" class="stack"></div></section>
+<section id="v-sat" hidden><div id="h-sat" class="stack"></div></section>
+<section id="v-dec" hidden><div id="p-dec"></div></section>
+<section id="v-tc" hidden><div id="h-tc" class="stack"></div><div id="p-tc"></div></section>
+<section id="v-map" hidden><div id="h-map" class="stack"></div></section>
+<section id="v-src" hidden><div id="p-src"></div></section>
 </div>
-<button id="cclose" type="button" class="rb sm" aria-label="Close panel"><svg class="i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
-</div>
-<section id="p-loc" role="tabpanel" aria-labelledby="t-loc" tabindex="0"></section>
-<section id="p-cmp" role="tabpanel" aria-labelledby="t-cmp" tabindex="0" hidden></section>
-<section id="p-his" role="tabpanel" aria-labelledby="t-his" tabindex="0" hidden></section>
-<section id="p-tc" role="tabpanel" aria-labelledby="t-tc" tabindex="0" hidden></section>
 </aside>
+<div id="tools" role="group" aria-label="Map controls"><button id="zin" type="button" aria-label="Zoom in" title="Zoom in"><svg class="i" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button><button id="zout" type="button" aria-label="Zoom out" title="Zoom out"><svg class="i" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/></svg></button><button id="fit" type="button" aria-label="Fit to Asia" title="Fit to Asia"><svg class="i" width="19" height="19" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="12" r="2"/></svg></button><button id="full" type="button" class="fs" aria-label="Toggle fullscreen" title="Fullscreen"><svg class="i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg></button></div>
 <div id="status" role="status" aria-live="polite"></div>
 <footer id="dock">
-<div id="tl-time" aria-live="off"></div>
 <button id="play" type="button" class="playb" aria-label="Play timeline"></button>
 <div class="stepb"><button id="prev" type="button" class="rb sm" aria-label="Previous step"><svg class="i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg></button><button id="next" type="button" class="rb sm" aria-label="Next step"><svg class="i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg></button></div>
+<div id="tl-time" aria-live="off"></div>
 <div id="track"><div id="ticks" aria-hidden="true"></div><div id="marker" aria-hidden="true"></div><input id="slider" type="range" min="0" max="0" value="0" step="1" aria-label="Timeline position" disabled></div>
-<div class="dock-r"><button id="now" type="button" class="pillb">Now</button><label class="sel"><span class="vh">Playback speed</span><select id="speed" aria-label="Playback speed"><option value="800">1x</option><option value="400">2x</option><option value="200">4x</option></select></label></div>
+<div class="dock-r"><button id="now" type="button" class="pillb">Now</button><div class="seg sm" id="speedseg" role="radiogroup" aria-label="Playback speed"><button type="button" data-ms="800" aria-pressed="true">1x</button><button type="button" data-ms="400" aria-pressed="false">2x</button><button type="button" data-ms="200" aria-pressed="false">4x</button></div></div>
 </footer>
-<div id="legend" aria-label="Wind speed legend" hidden></div>
-<div id="info" class="modal" hidden>
-<div class="scrim" data-close="1"></div>
-<div class="dlg" role="dialog" aria-modal="true" aria-labelledby="info-t" tabindex="-1">
-<div class="dlg-h"><div><h2 id="info-t">Data and sources</h2><div class="cap">Where every layer comes from and how it is decoded</div></div><button id="iclose" type="button" class="rb sm" aria-label="Close"><svg class="i" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
-<div role="tablist" id="itabs" aria-label="Information">
-<button role="tab" id="t-src" aria-controls="p-src" aria-selected="true" type="button">Sources</button>
-<button role="tab" id="t-dec" aria-controls="p-dec" aria-selected="false" type="button" tabindex="-1">Decoder</button>
-</div>
-<section id="p-src" role="tabpanel" aria-labelledby="t-src" tabindex="0"></section>
-<section id="p-dec" role="tabpanel" aria-labelledby="t-dec" tabindex="0" hidden></section>
-</div>
-</div>
+<div id="legend" aria-label="Legend" hidden></div>
 </div>
 <script type="module" src="/src/main.ts"></script>
 </body>
