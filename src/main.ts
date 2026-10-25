@@ -34,7 +34,7 @@ interface Pin{lat:number;lon:number;name:string}
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const mobile=()=>matchMedia('(max-width:760px)').matches;
 const savedModel=store.get('asiawx.model');
-const st={model:MODELS.some(m=>m.id===savedModel)?savedModel as string:MODELS[0].id,tz:'UTC' as Tz,idx:0,grid:null as GridSet|null,point:null as Point|null,pin:null as Pin|null,playing:false,windOn:!reduce,quality:(matchMedia('(pointer:coarse)').matches||(navigator.hardwareConcurrency||4)<=4?'low':'medium') as Quality,opacity:0.9,cmpMode:'off' as 'off'|'diff'|'split',modelB:MODELS[1].id,split:0.5,base:(BASES.some(b=>b.v===store.get('asiawx.base'))?store.get('asiawx.base'):'dark') as string};
+const st={model:MODELS.some(m=>m.id===savedModel)?savedModel as string:MODELS[0].id,tz:'UTC' as Tz,idx:0,grid:null as GridSet|null,point:null as Point|null,pin:null as Pin|null,playing:false,windOn:!reduce,quality:(matchMedia('(pointer:coarse)').matches||(navigator.hardwareConcurrency||4)<=4?'low':'medium') as Quality,opacity:0.9,cmpMode:'off' as 'off'|'diff'|'split',modelB:MODELS[1].id,split:0.5,base:(BASES.some(b=>b.v===store.get('asiawx.base'))?store.get('asiawx.base'):'light') as string};
 const modelInfo=()=>MODELS.find(m=>m.id===st.model) as typeof MODELS[number];
 
 
