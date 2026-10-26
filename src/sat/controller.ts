@@ -28,7 +28,7 @@ export const modeOf=(L:SatLayer|null):Mode|null=>!L?null:L.decode?'cmap':lumCapa
 const LK=(L:{provider:string;id:string})=>`asiawx.lum.v1.${L.provider}.${L.id}`;
 const BND=['sat-coast','sat-bnd-case','sat-bnd','sat-adm1'];
 export class SatController{
-on=false;key='ir';catalog:Catalog|null=null;frames:number[]=[];idx=0;opacity=0.85;view:View='raw';thr=-52;mix=1;smoothLv=2;cov:Cov='fast';borders=true;
+on=false;key='ir';catalog:Catalog|null=null;frames:number[]=[];idx=0;opacity=0.85;view:View='raw';thr=-52;mix=1;smoothLv=2;cov:Cov='fine';borders=true;
 busy=false;playing=false;cmap:CMap|null=null;cmapState:'idle'|'loading'|'ok'|'unusable'|'error'='idle';
 meta:Meta|null=null;wmeta:Meta|null=null;bt:Float32Array|null=null;wbt:Float32Array|null=null;dstat='';dkind:'info'|'warn'|'err'='info';loading=false;
 lums=new Map<string,Fit>();cal=new Map<string,{s:'working'|'ok'|'fail';m:string}>();saving=false;cstat='';cinfo='';eng:Eng='v2';v2:V2P=JSON.parse(JSON.stringify(V2_DEF));loopMode=false;lost=false;fadeMs=0;
@@ -306,7 +306,7 @@ let prev:Uint8ClampedArray|null=null;
 const pt=t-COOL_STEP,prevOk=this.frames.includes(pt);
 if(view==='cool'&&prevOk&&mode!=='vis')prev=await this.mosaic(L,pt,r);
 const native=!wide&&r.z===L.maxzoom&&this.map.getZoom()>=L.maxzoom-0.5;
-const eng=this.engEff,scale=eng==='v1'&&w*h<=1100000&&(view==='enh'||view==='cold'||view==='cloud')?2:1;
+const eng=this.engEff,scale=eng==='v1'&&w*h<=4200000&&(view==='enh'||view==='cold'||view==='cloud')?2:1;
 const lum=mode==='lum'?(this.lumFit as Fit).lut:null,c=this.cmap;
 const job:DecodeIn={w,h,cur,prev,view,thr:this.thr,native,rgb:this.palOn&&c?c.rgb.slice():new Uint8Array(0),btv:this.palOn&&c?c.bt.slice():new Float32Array(0),lum,src,mask:diskArrays(r),smooth:this.smoothLv,scale,ppd:ppdOf(r.z),eng,v2:JSON.parse(JSON.stringify(this.v2)),hi,ox:r.x0*TS,oy:r.y0*TS};
 const key=this.curKey(),box=boxOf(r);

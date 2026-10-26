@@ -37,9 +37,15 @@ const px=frame([[0,0,0],[120,120,120],[255,255,255],[215,30,40]]),r=runV2(job(px
 expect(r.stats.unmatched).toBe(0);expect(r.stats.valid).toBe(W*H);
 const lum=(i:number)=>r.out[i*4]+r.out[i*4+1]+r.out[i*4+2];
 expect(lum(0)).toBeLessThan(lum(2))});
-it('counts pixels outside the palette and still renders them',()=>{
-const px=frame([[0,0,0],[5,250,5]]),r=runV2(job(px,true));
-expect(r.stats.unmatched).toBe(W*H/2);expect(r.out[7]).toBe(255)});
+it('counts pixels far from the palette and leaves them transparent',()=>{
+const px=frame([[0,0,0],[5,250,5]]),r=runV2(job(px,true,'real','clear'));
+expect(r.stats.unmatched).toBe(W*H/2);expect(r.stats.valid).toBe(W*H/2);expect(r.out[7]).toBe(0)});
+it('colours between two palette entries decode continuously instead of snapping',()=>{
+const f=paletteLut(cm.rgb,cm.bt),a=f(60,200,250),b=f(40,200,90),m=f(50,200,170),mid=f(50,200,171);
+expect(m).toBeGreaterThan(Math.min(a,b));expect(m).toBeLessThan(Math.max(a,b));expect(Math.abs(mid-m)).toBeLessThan(0.05)});
+it('warm grey is never more opaque than the original colour engine made it',()=>{
+const px=frame([[0,0,0],[120,120,120],[200,200,200]]),a=runV2(job(px,true,'real','clear')),b=runV2(job(px,false,'real','clear'));
+for(let i=0;i<W*H;i++)expect(a.out[i*4+3]).toBeLessThanOrEqual(b.out[i*4+3])});
 it('falls back to the colour engine without a palette',()=>{
 const px=frame([[0,0,0],[60,200,250]]),a=runV2(job(px,false)),b=runV2(job(px,false));
 expect(a.stats.unmatched).toBe(0);expect(Array.from(a.out)).toEqual(Array.from(b.out))});
@@ -53,3 +59,10 @@ describe('V1 with the provider palette',()=>{
 it('decodes black and grey pixels to their palette temperatures',()=>{
 const px=frame([[0,0,0],[120,120,120],[255,255,255]]),r=run({...job(px,true),eng:'v1'});
 expect(r.bt[0]).toBeCloseTo(40);expect(r.bt[1]).toBeCloseTo(20);expect(r.bt[2]).toBeCloseTo(-20);expect(r.stats.unmatched).toBe(0)})});
+describe('palette decoding is stable under colour noise',()=>{
+it('small colour drift never produces speckle or unmatched pixels',()=>{
+const f=paletteLut(cm.rgb,cm.bt);let worst=0,nan=0;
+for(let i=0;i<cm.n;i++)for(const d of [-3,-2,2,3]){
+const r=Math.max(0,Math.min(255,cm.rgb[i*3]+d)),g=Math.max(0,Math.min(255,cm.rgb[i*3+1]-d)),b=Math.max(0,Math.min(255,cm.rgb[i*3+2]+d)),v=f(r,g,b),e=f(cm.rgb[i*3],cm.rgb[i*3+1],cm.rgb[i*3+2]);
+if(v!==v)nan++;else worst=Math.max(worst,Math.abs(v-e))}
+expect(nan).toBe(0);expect(worst).toBeLessThan(0.09)})});

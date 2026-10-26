@@ -1,4 +1,4 @@
-import {buildLut} from './colormap';
+import {btLut} from './pal';
 import {fitCurve,lumOf,type Fit} from './calib';
 import {LIMB,diskVis} from './geo';
 import {runV2,type V2P} from './real';
@@ -19,6 +19,8 @@ export function enhColor(t:number):number[]{
 if(t>=ENH[0][0])return ENH[0].slice(1);
 for(let i=1;i<ENH.length;i++){if(t>=ENH[i][0]){const a=ENH[i-1],b=ENH[i],f=(a[0]-t)/(a[0]-b[0]);return[0,1,2].map(k=>Math.round(a[k+1]+(b[k+1]-a[k+1])*f))}}
 return ENH[ENH.length-1].slice(1)}
+const EN_LO=-100,EN_N=3201,EN_T=new Uint8Array(EN_N*3);
+for(let i=0;i<EN_N;i++){const c=enhColor(EN_LO+i*0.05);EN_T[i*3]=c[0];EN_T[i*3+1]=c[1];EN_T[i*3+2]=c[2]}
 export function decodeBT(px:Uint8ClampedArray,lut:(r:number,g:number,b:number)=>number,o:{unmatched:number}):Float32Array{
 const n=px.length>>2,bt=new Float32Array(n);
 for(let i=0;i<n;i++){
@@ -39,18 +41,30 @@ return o}
 const KER:number[][]=[[1],[1,2,1],[1,4,6,4,1]];
 export function smooth(bt:Float32Array,w:number,h:number,level:number):Float32Array{
 if(level<=0)return bt;
-const k=KER[Math.min(2,level)],r=k.length>>1,n=bt.length,a=new Float32Array(n),aw=new Float32Array(n);
-for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+const k=KER[Math.min(2,level)],r=k.length>>1,n=bt.length,a=new Float32Array(n),aw=new Float32Array(n),o=new Float32Array(n),k0=k[0],k1=k[1]??0,k2=k[2]??0;
+const edge=(row:number,x:number)=>{
 let s=0,ws=0;
-for(let d=-r;d<=r;d++){const xx=x+d;if(xx<0||xx>=w)continue;const v=bt[y*w+xx];if(v===v){const kw=k[d+r];s+=v*kw;ws+=kw}}
-a[y*w+x]=s;aw[y*w+x]=ws}
-const o=new Float32Array(n);
-for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-const i=y*w+x;
-if(bt[i]!==bt[i]){o[i]=NaN;continue}
-let s=0,ws=0;
-for(let d=-r;d<=r;d++){const yy=y+d;if(yy<0||yy>=h)continue;const j=yy*w+x,kw=k[d+r];s+=a[j]*kw;ws+=aw[j]*kw}
-o[i]=ws>0?s/ws:bt[i]}
+const d0=x<r?-x:-r,d1=x+r>=w?w-1-x:r;
+for(let d=d0;d<=d1;d++){const v=bt[row+x+d];if(v===v){const kw=k[d+r];s+=v*kw;ws+=kw}}
+a[row+x]=s;aw[row+x]=ws};
+const full=r===2?k0+k1+k2+k1+k0:k0+k1+k0;
+for(let y=0;y<h;y++){
+const row=y*w;
+for(let x=0;x<r&&x<w;x++)edge(row,x);
+for(let x=Math.max(r,w-r);x<w;x++)edge(row,x);
+if(r===2){for(let x=2;x<w-2;x++){const i=row+x,v0=bt[i-2],v1=bt[i-1],v2=bt[i],v3=bt[i+1],v4=bt[i+2];if(v0+v1+v2+v3+v4===v0+v1+v2+v3+v4){a[i]=v0*k0+v1*k1+v2*k2+v3*k1+v4*k0;aw[i]=full}else edge(row,x)}}
+else{for(let x=1;x<w-1;x++){const i=row+x,v0=bt[i-1],v1=bt[i],v2=bt[i+1];if(v0+v1+v2===v0+v1+v2){a[i]=v0*k0+v1*k1+v2*k0;aw[i]=full}else edge(row,x)}}}
+const sr=new Float64Array(w),wr=new Float64Array(w);
+for(let y=0;y<h;y++){
+const base=y*w;
+if(y>=r&&y<h-r){
+if(r===2){const u=base-2*w,v=base-w,dn=base+w,dd=base+2*w;for(let x=0;x<w;x++){const sv=a[u+x]*k0+a[v+x]*k1+a[base+x]*k2+a[dn+x]*k1+a[dd+x]*k0,wv=aw[u+x]*k0+aw[v+x]*k1+aw[base+x]*k2+aw[dn+x]*k1+aw[dd+x]*k0,b=bt[base+x];o[base+x]=b!==b?NaN:wv>0?sv/wv:b}}
+else{const u=base-w,dn=base+w;for(let x=0;x<w;x++){const sv=a[u+x]*k0+a[base+x]*k1+a[dn+x]*k0,wv=aw[u+x]*k0+aw[base+x]*k1+aw[dn+x]*k0,b=bt[base+x];o[base+x]=b!==b?NaN:wv>0?sv/wv:b}}
+continue}
+sr.fill(0);wr.fill(0);
+const d0=y<r?-y:-r,d1=y+r>=h?h-1-y:r;
+for(let d=d0;d<=d1;d++){const kw=k[d+r],row=(y+d)*w;for(let x=0;x<w;x++){sr[x]+=a[row+x]*kw;wr[x]+=aw[row+x]*kw}}
+for(let x=0;x<w;x++){const v=bt[base+x];o[base+x]=v!==v?NaN:wr[x]>0?sr[x]/wr[x]:v}}
 return o}
 export function up2(s:Float32Array,w:number,h:number):Float32Array{
 const W=w*2,H=h*2,o=new Float32Array(W*H);
@@ -116,7 +130,7 @@ const fa=(X:number,Y:number)=>vf?vf(Math.floor(X/sc),Math.floor(Y/sc)):1;
 const fld=(a:Float32Array)=>{const s=smooth(a,w,h,lv);return sc===2?up2(s,w,h):s};
 if(view==='enh'){
 const f=fld(bt);
-for(let Y=0;Y<oh;Y++)for(let X=0;X<ow;X++){const i=Y*ow+X,v=f[i];if(v!==v)continue;const a=fa(X,Y);if(a<=0)continue;put(i,enhColor(v),Math.round(255*a))}
+for(let Y=0;Y<oh;Y++)for(let X=0;X<ow;X++){const i=Y*ow+X,v=f[i];if(v!==v)continue;const a=fa(X,Y);if(a<=0)continue;const e=Math.max(0,Math.min(EN_N-1,Math.round((v-EN_LO)*20)))*3,p=i<<2;out[p]=EN_T[e];out[p+1]=EN_T[e+1];out[p+2]=EN_T[e+2];out[p+3]=Math.round(255*a)}
 for(let i=0;i<bt.length;i++){const v=bt[i];if(v===v&&v<=thr)flag++}
 return{out,flag,ow,oh}}
 if(view==='cold'){
@@ -184,7 +198,7 @@ if(i.eng==='v2')return runV2(i);
 const o={unmatched:0},src=i.src??(i.lum?'lum':'cmap');
 let lut:(r:number,g:number,b:number)=>number;
 if(src==='lum'&&i.lum){const L=i.lum;lut=(r,g,b)=>L[lumOf(r,g,b)]}
-else lut=buildLut({rgb:i.rgb,bt:i.btv,n:i.btv.length,total:i.btv.length,usable:true});
+else lut=btLut(i.rgb,i.btv);
 const bt=src==='vis'?decodeVis(i.cur):decodeBT(i.cur,lut,o);
 const prev=i.prev&&src!=='vis'?decodeBT(i.prev,lut,{unmatched:0}):null;
 if(i.mask){applyMask(bt,i.w,i.h,i.mask);if(prev)applyMask(prev,i.w,i.h,i.mask)}
@@ -193,6 +207,6 @@ for(let k=0;k<bt.length;k++){const v=bt[k];if(v===v){valid++;if(v<min)min=v}}
 const r=render(bt,prev,i.w,i.h,i.view,i.thr,i.native,{smooth:i.smooth,scale:i.scale,ppd:i.ppd,src,mask:i.mask});
 return{out:r.out,ow:r.ow,oh:r.oh,bt,stats:{valid,unmatched:o.unmatched,min:valid&&src!=='vis'?min:null,flag:r.flag}}}
 export function calibrate(j:CalibIn):Fit{
-const lut=buildLut({rgb:j.rgb,bt:j.btv,n:j.btv.length,total:j.btv.length,usable:true}),bt=decodeBT(j.ref,lut,{unmatched:0});
+const lut=btLut(j.rgb,j.btv),bt=decodeBT(j.ref,lut,{unmatched:0});
 applyMask(bt,j.w,j.h,j.mask);
 return fitCurve(j.src,bt)}

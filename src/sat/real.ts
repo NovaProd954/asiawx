@@ -17,6 +17,7 @@ for(let i=0;i<stops.length-1;i++){
 const a=stops[i],b=stops[i+1];
 if(t>=a[0]&&t<=b[0]){const f=(t-a[0])/((b[0]-a[0])||1);return[a[1][0]+(b[1][0]-a[1][0])*f,a[1][1]+(b[1][1]-a[1][1])*f,a[1][2]+(b[1][2]-a[1][2])*f]}}
 return[255,255,255]}
+const RP=Float64Array.from(REALISTIC.map(x=>x[0])),RC=Float64Array.from(REALISTIC.flatMap(x=>x[1])),RN=RP.length;
 const PAL_LUTS:Record<string,Uint8Array>={};
 for(const [k,s] of [['classic',FALSE_COLOR],['enhanced',ENHANCED]] as [string,Stop[]][]){
 const l=new Uint8Array(3072);
@@ -57,13 +58,18 @@ export function boxBlur(src:Float32Array,w:number,h:number,radius:number):Float3
 if(radius<=0)return src;
 const tmp=new Float32Array(w*h),out=new Float32Array(w*h);
 for(let y=0;y<h;y++){
+const row=y*w;
 let sum=0,cnt=0;
-for(let k=-radius;k<=radius;k++){const xx=Math.min(w-1,Math.max(0,k));sum+=src[y*w+xx];cnt++}
-for(let x=0;x<w;x++){tmp[y*w+x]=sum/cnt;const addX=Math.min(w-1,x+radius+1),remX=Math.max(0,x-radius);sum+=src[y*w+addX]-src[y*w+remX]}}
-for(let x=0;x<w;x++){
-let sum=0,cnt=0;
-for(let k=-radius;k<=radius;k++){const yy=Math.min(h-1,Math.max(0,k));sum+=tmp[yy*w+x];cnt++}
-for(let y=0;y<h;y++){out[y*w+x]=sum/cnt;const addY=Math.min(h-1,y+radius+1),remY=Math.max(0,y-radius);sum+=tmp[addY*w+x]-tmp[remY*w+x]}}
+for(let k=-radius;k<=radius;k++){const xx=Math.min(w-1,Math.max(0,k));sum+=src[row+xx];cnt++}
+for(let x=0;x<w;x++){tmp[row+x]=sum/cnt;const addX=Math.min(w-1,x+radius+1),remX=Math.max(0,x-radius);sum+=src[row+addX]-src[row+remX]}}
+const cs=new Float64Array(w);
+for(let k=-radius;k<=radius;k++){const row=Math.min(h-1,Math.max(0,k))*w;for(let x=0;x<w;x++)cs[x]+=tmp[row+x]}
+const cnt=2*radius+1;
+for(let y=0;y<h;y++){
+const row=y*w;
+for(let x=0;x<w;x++)out[row+x]=cs[x]/cnt;
+const ar=Math.min(h-1,y+radius+1)*w,rr=Math.max(0,y-radius)*w;
+for(let x=0;x<w;x++)cs[x]+=tmp[ar+x]-tmp[rr+x]}
 return out}
 export function trueField(d:Uint8ClampedArray,w:number,h:number,valid:Uint8Array|null):Float32Array{
 const n=w*h,s=new Float32Array(n);
@@ -106,19 +112,28 @@ const ma=boxBlur(a,w,h,r),mb=boxBlur(b,w,h,r),o=new Float32Array(n);
 for(let i=0;i<n;i++)o[i]=ma[i]*p[i]+mb[i];
 return o}
 const hash2=(x:number,y:number)=>{const n=Math.sin(x*127.1+y*311.7)*43758.5453;return n-Math.floor(n)};
-function valueNoise(x:number,y:number){
-const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi,a=hash2(xi,yi),b=hash2(xi+1,yi),c=hash2(xi,yi+1),d=hash2(xi+1,yi+1),u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);
-return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v}
-function fbm(x:number,y:number){
-let total=0,amp=0.55,freq=1,norm=0;
-for(let o=0;o<3;o++){total+=valueNoise(x*freq,y*freq)*amp;norm+=amp;amp*=0.5;freq*=2.35}
-return total/norm}
 let NK="",NF:Float64Array|null=null;
 export function noiseField(ox:number,oy:number,w:number,h:number):Float64Array{
 const k=`${ox}|${oy}|${w}|${h}`;
 if(k===NK&&NF)return NF;
 const f=new Float64Array(w*h);
-for(let y=0;y<h;y++)for(let x=0;x<w;x++)f[y*w+x]=fbm((ox+x)*0.09,(oy+y)*0.09);
+let amp=0.55,freq=1,norm=0;
+const parts:{amp:number;xi:Int32Array;u:Float64Array;yi:Int32Array;v:Float64Array;G:Float64Array;gw:number;xi0:number;yi0:number}[]=[];
+for(let o=0;o<3;o++){
+const xi=new Int32Array(w),u=new Float64Array(w),yi=new Int32Array(h),v=new Float64Array(h);
+let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+for(let x=0;x<w;x++){const xs=(ox+x)*0.09*freq,i0=Math.floor(xs),xf=xs-i0;xi[x]=i0;u[x]=xf*xf*(3-2*xf);if(i0<x0)x0=i0;if(i0>x1)x1=i0}
+for(let y=0;y<h;y++){const ys=(oy+y)*0.09*freq,i0=Math.floor(ys),yf=ys-i0;yi[y]=i0;v[y]=yf*yf*(3-2*yf);if(i0<y0)y0=i0;if(i0>y1)y1=i0}
+const gw=x1-x0+2,gh=y1-y0+2,G=new Float64Array(gw*gh);
+for(let gy=0;gy<gh;gy++)for(let gx=0;gx<gw;gx++)G[gy*gw+gx]=hash2(x0+gx,y0+gy);
+parts.push({amp,xi,u,yi,v,G,gw,xi0:x0,yi0:y0});
+norm+=amp;amp*=0.5;freq*=2.35}
+for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+let total=0;
+for(const q of parts){
+const g=(q.yi[y]-q.yi0)*q.gw+q.xi[x]-q.xi0,a=q.G[g],b=q.G[g+1],c=q.G[g+q.gw],d=q.G[g+q.gw+1],u=q.u[x],v=q.v[y];
+total+=(a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v)*q.amp}
+f[y*w+x]=total/norm}
 NK=k;NF=f;return f}
 export interface RO{ox?:number;oy?:number;alpha:Float32Array;bg:'clear'|'space'}
 export function renderReal(rawT:Float32Array,w:number,h:number,p:RealP,o:RO):{out:Uint8ClampedArray;flag:number}{
@@ -142,7 +157,7 @@ let tc=t3[i];
 if(tc>0.74)tc=0.74+(tc-0.74)*p.storm;
 let r:number,g:number,b:number;
 if(mono){const gg=tc<=0.74?tc/0.74*230+15:230-((tc-0.74)/0.26)*180;r=gg;g=gg;b=gg}
-else{const c=lutColorFrom(REALISTIC,tc);r=c[0];g=c[1];b=c[2]}
+else{const tt=tc<0?0:tc>1?1:tc;let si=0;while(si<RN-2&&tt>RP[si+1])si++;const f=(tt-RP[si])/((RP[si+1]-RP[si])||1),c0=si*3,c1=c0+3;r=RC[c0]+(RC[c1]-RC[c0])*f;g=RC[c0+1]+(RC[c1+1]-RC[c0+1])*f;b=RC[c0+2]+(RC[c1+2]-RC[c0+2])*f}
 const q=i*4,a=al[i];
 out[q]=r*shade;out[q+1]=g*shade;out[q+2]=b*shade;
 out[q+3]=a<=0?0:Math.round(255*a*(o.bg==='clear'?sstep(0,0.08,t3[i]):1));
@@ -185,7 +200,7 @@ const lut=paletteLut(i.rgb,i.btv);f=new Float32Array(n);
 for(let k=0;k<n;k++){
 if(!valid[k])continue;
 const q=k<<2,v=lut(px[q],px[q+1],px[q+2]);
-if(v===v)f[k]=v;else{unmatched++;f[k]=intensityOf(px[q],px[q+1],px[q+2])}}}
+if(v===v)f[k]=v;else{unmatched++;valid[k]=0;alpha[k]=0;cnt--}}}
 else f=intensityField(px,n,valid);
 return{f,alpha,cnt,unmatched}}
 export function runV2(i:DecodeIn):DecodeOut{
