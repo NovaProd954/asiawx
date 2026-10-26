@@ -1,1 +1,19 @@
-{"rewrites":[{"source":"/p/jma/:path*","destination":"https://www.jma.go.jp/:path*"}]}
+{
+ "rewrites": [
+  {
+   "source": "/p/jma/:path*",
+   "destination": "https://www.jma.go.jp/:path*"
+  }
+ ],
+ "headers": [
+  {
+   "source": "/atlas/(.*)",
+   "headers": [
+    {
+     "key": "Cache-Control",
+     "value": "public, max-age=31536000, immutable"
+    }
+   ]
+  }
+ ]
+}

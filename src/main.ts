@@ -1,7 +1,7 @@
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './style.css';
-import {BOUNDS,START,MODELS,STYLES,BASES,rampFor,SOURCES} from './config';
+import {BOUNDS,START,MODELS,styleFor,BASES,rampFor,isDark,SOURCES} from './config';
 import {loadGrid,type GridSet} from './data/grid';
 import {loadPoint,valueAt,type Point} from './data/forecast';
 import {search,parseCoord,inAsia,type Place} from './data/geocode';
@@ -34,11 +34,11 @@ interface Pin{lat:number;lon:number;name:string}
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 const mobile=()=>matchMedia('(max-width:760px)').matches;
 const savedModel=store.get('asiawx.model');
-const st={model:MODELS.some(m=>m.id===savedModel)?savedModel as string:MODELS[0].id,tz:'UTC' as Tz,idx:0,grid:null as GridSet|null,point:null as Point|null,pin:null as Pin|null,playing:false,windOn:!reduce,quality:(matchMedia('(pointer:coarse)').matches||(navigator.hardwareConcurrency||4)<=4?'low':'medium') as Quality,opacity:0.9,cmpMode:'off' as 'off'|'diff'|'split',modelB:MODELS[1].id,split:0.5,base:(BASES.some(b=>b.v===store.get('asiawx.base'))?store.get('asiawx.base'):'light') as string};
+const st={model:MODELS.some(m=>m.id===savedModel)?savedModel as string:MODELS[0].id,tz:'UTC' as Tz,idx:0,grid:null as GridSet|null,point:null as Point|null,pin:null as Pin|null,playing:false,windOn:!reduce,quality:(matchMedia('(pointer:coarse)').matches||(navigator.hardwareConcurrency||4)<=4?'low':'medium') as Quality,opacity:0.9,cmpMode:'off' as 'off'|'diff'|'split',modelB:MODELS[1].id,split:0.5,base:(BASES.some(b=>b.v===store.get('asiawx.base2'))?store.get('asiawx.base2'):'atlas') as string};
 const modelInfo=()=>MODELS.find(m=>m.id===st.model) as typeof MODELS[number];
 
 
-const fld=new FieldController({change:()=>{renderLayers();buildLegend();syncRamp();applyWind()},name:id=>(MODELS.find(m=>m.id===id)?.name??id),status:(m,k,r)=>setStatus(m,k,r),dark:()=>st.base==='dark',tz:()=>st.tz});
+const fld=new FieldController({change:()=>{renderLayers();buildLegend();syncRamp();applyWind()},name:id=>(MODELS.find(m=>m.id===id)?.name??id),status:(m,k,r)=>setStatus(m,k,r),dark:()=>isDark(st.base),tz:()=>st.tz});
 let map:maplibregl.Map|null=null,wind:WindLayer|null=null,wind2:WindLayer|null=null,gridB:GridSet|null=null,marker:maplibregl.Marker|null=null,sc:SatController|null=null,satSigV='';
 const satOn=()=>!!(sc&&sc.ready);
 const cur=()=>satOn()&&sc?sc.idx:st.idx;
@@ -62,7 +62,7 @@ const nowIdx=(g:GridSet)=>{const n=Date.now()/1000;let k=0;for(let i=0;i<g.times
 function initMap(){
 if(!hasGL()){setStatus('WebGL is not available on this device. The map and wind animation are off; search and forecasts still work.','warn');return}
 try{
-map=new maplibregl.Map({container:'map',style:STYLES[st.base],bounds:START,fitBoundsOptions:{padding:pad()},maxBounds:BOUNDS,minZoom:2,maxPitch:60,attributionControl:false});
+map=new maplibregl.Map({container:'map',style:styleFor(st.base),bounds:START,fitBoundsOptions:{padding:pad()},maxBounds:BOUNDS,minZoom:2,maxPitch:60,attributionControl:false});
 map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-right');
 if(!mobile())map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-right');
 wind=new WindLayer(map,$<HTMLCanvasElement>('wind'));wind.setQuality(st.quality);wind.setOpacity(st.opacity);
@@ -89,7 +89,7 @@ const bt=sc?.btAt(lon,lat);
 const tip=$('tip');tip.innerHTML=`<div>${coordName(lat,lon)}</div><div>${w}</div>${fL}${cmpL}${bt!=null?`<div>Cloud top ${bt.toFixed(1)} \u00b0C, approximate</div>`:''}`;tip.hidden=false;
 const W=$('mapwrap').clientWidth,tw=tip.offsetWidth;tip.style.left=`${pt.x+18+tw>W?Math.max(4,pt.x-18-tw):pt.x+18}px`;tip.style.top=`${Math.max(4,pt.y+18)}px`}
 
-const windRamp=()=>fld.active?neutralRamp(st.base==='dark'):rampFor(st.base);
+const windRamp=()=>fld.active?neutralRamp(isDark(st.base)):rampFor(st.base);
 function syncRamp(){const r=windRamp();wind?.setRamp(r);wind2?.setRamp(r)}
 function buildLegend(){
 if(fld.active){$('legend').innerHTML=fld.legend();return}
@@ -218,7 +218,7 @@ function renderTc(){if($('p-tc').hidden)return;$('p-tc').innerHTML=tcPanel(tc,st
 function tcChanged(){const g=tcSig(tc);if(g!==tcSigV){tcSigV=g;renderLayers()}if(!$('p-tc').hidden)renderTc();if(!$('p-src').hidden)renderSources()}
 function openTc(){showCard('tc')}
 function setModel(id:string){st.model=id;store.set('asiawx.model',id);fixB();fld.setModel(id);stop();void loadWind();if(st.pin)void loadLocation();if(st.cmpMode!=='off'){gridB=null;void loadB()}renderLayers()}
-function setBase(v:string){st.base=v;$('app').classList.toggle('lt',v!=='dark');store.set('asiawx.base',v);map?.setStyle(STYLES[v]);syncRamp();buildLegend();renderLayers()}
+function setBase(v:string){st.base=v;$('app').classList.toggle('lt',!isDark(v));store.set('asiawx.base2',v);map?.setStyle(styleFor(v));syncRamp();buildLegend();renderLayers()}
 function renderModelSeg(){
 $('modelseg').innerHTML=MODELS.map(x=>`<label title="${esc(x.org)}, ${esc(x.res)}"><input type="radio" name="l-model" value="${x.id}" ${x.id===st.model?'checked':''}><span>${esc(x.name)}</span></label>`).join('')}
 function windCard(){
@@ -267,7 +267,7 @@ if(satOn()&&sc&&!sc.loopMode){void sc.saveLoop(true).then(ok=>{if(!st.playing)re
 go()}
 
 function initUi(){
-$('app').classList.toggle('lt',st.base!=='dark');
+$('app').classList.toggle('lt',!isDark(st.base));
 $('play').innerHTML=PLAYI;
 $('tz-u').addEventListener('click',()=>setTz('UTC'));$('tz-l').addEventListener('click',()=>setTz('Local'));
 $('play').addEventListener('click',()=>st.playing?stop():play());

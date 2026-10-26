@@ -1,3 +1,4 @@
+import type {StyleSpecification} from 'maplibre-gl';
 export const BOUNDS:[[number,number],[number,number]]=[[25,-12],[180,80]];
 export const START:[[number,number],[number,number]]=[[42,-6],[150,58]];
 export interface ModelInfo{id:string;name:string;org:string;res:string;license:string}
@@ -7,10 +8,14 @@ export const MODELS:ModelInfo[]=[
 {id:'icon_seamless',name:'ICON',org:'DWD',res:'global 0.125 deg, about 13 km over Asia',license:'CC BY 4.0'}
 ];
 export const STYLES:Record<string,string>={dark:'https://tiles.openfreemap.org/styles/dark',light:'https://tiles.openfreemap.org/styles/positron',standard:'https://tiles.openfreemap.org/styles/bright'};
-export const BASES:{v:string;l:string;s:string}[]=[{v:'dark',l:'Dark',s:'OpenFreeMap dark, incomplete labels'},{v:'light',l:'Light',s:'OpenFreeMap Positron'},{v:'standard',l:'Standard',s:'OpenFreeMap Bright'}];
+export const ATLAS_VER='v1';
+export const atlasStyle=(origin:string):StyleSpecification=>({version:8,glyphs:'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',sources:{atlas:{type:'raster',tiles:[`${origin}/atlas/${ATLAS_VER}/{z}/{x}/{y}.webp`],tileSize:512,minzoom:2,maxzoom:5,bounds:[24,-12,180,82],attribution:'Map: Natural Earth'},ofm:{type:'vector',url:'https://tiles.openfreemap.org/planet'}},layers:[{id:'atlas-bg',type:'background',paint:{'background-color':'#1b5190'}},{id:'atlas',type:'raster',source:'atlas',paint:{'raster-fade-duration':0,'raster-resampling':'linear'}}]});
+export const styleFor=(v:string):string|StyleSpecification=>v==='atlas'?atlasStyle(location.origin):STYLES[v];
+export const isDark=(b:string)=>b==='dark'||b==='atlas';
+export const BASES:{v:string;l:string;s:string}[]=[{v:'atlas',l:'Asia Atlas',s:'Pre-rendered Natural Earth map of Asia'},{v:'dark',l:'Dark',s:'OpenFreeMap dark, incomplete labels'},{v:'light',l:'Light',s:'OpenFreeMap Positron'},{v:'standard',l:'Standard',s:'OpenFreeMap Bright'}];
 export const RAMP:[number,string][]=[[0,'#4b2a7b'],[5,'#375a8c'],[10,'#1f8a8a'],[15,'#2fa05a'],[20,'#a3a01a'],[25,'#c25a12']];
 export const RAMP_DARK:[number,string][]=[[0,'#6fb7ff'],[5,'#62e0d6'],[10,'#a8f08a'],[15,'#ffe66d'],[20,'#ffae5c'],[25,'#ff7a6b']];
-export const rampFor=(base:string)=>base==='dark'?RAMP_DARK:RAMP;
+export const rampFor=(base:string)=>isDark(base)?RAMP_DARK:RAMP;
 export interface SourceInfo{key:string;name:string;what:string;license:string;attribution:string;coverage:string;update:string}
 export const SOURCES:SourceInfo[]=[
 {key:'grid',name:'Open-Meteo Forecast API (wind grid)',what:'10 m wind speed and direction sampled every 6 degrees from the selected model, 48 hourly steps',license:'Data CC BY 4.0; free API for non-commercial use',attribution:'Weather data by Open-Meteo.com',coverage:'25E-180E, 12S-78N',update:'Model runs, typically every 6 h; cached 3 h at the edge'},
