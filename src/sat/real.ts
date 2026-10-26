@@ -1,5 +1,6 @@
 import {diskVis,LIMB} from './geo';
 import type {DecodeIn,DecodeOut} from './decode';
+import {paletteLut} from './pal';
 export interface RealP{thr:number;ct:number;storm:number;soft:number;noise:number;relief:number;light:number;pal:'real'|'mono'}
 export interface EnhP{thr:number;ct:number;soft:number;height:number;pal:'classic'|'enhanced'}
 export interface V2P{real:RealP;enh:EnhP;bg:'clear'|'space'}
@@ -169,17 +170,26 @@ if(v>=0.2)flag++}
 return{out,flag}}
 function fieldOf(i:DecodeIn){
 const n=i.w*i.h,mk=i.mask as Mk|null|undefined,px=i.cur,valid=new Uint8Array(n),alpha=new Float32Array(n);
-let cnt=0;
+let cnt=0,unmatched=0;
 for(let y=0;y<i.h;y++)for(let x=0;x<i.w;x++){
 const k=y*i.w+x;
 if(px[(k<<2)+3]<128)continue;
 let a=1;
 if(mk){const c=mk.row[y]*mk.col[x];if(c<=LIMB)continue;a=diskVis(c)}
 valid[k]=1;alpha[k]=a;cnt++}
-const f=i.view==='e2'&&i.src==='vis'?trueField(px,i.w,i.h,valid):intensityField(px,n,valid);
-return{f,alpha,cnt}}
+const pal=i.src!=='vis'&&i.rgb&&i.btv&&i.btv.length>=8&&i.rgb.length===i.btv.length*3;
+let f:Float32Array;
+if(i.view==='e2'&&i.src==='vis')f=trueField(px,i.w,i.h,valid);
+else if(pal){
+const lut=paletteLut(i.rgb,i.btv);f=new Float32Array(n);
+for(let k=0;k<n;k++){
+if(!valid[k])continue;
+const q=k<<2,v=lut(px[q],px[q+1],px[q+2]);
+if(v===v)f[k]=v;else{unmatched++;f[k]=intensityOf(px[q],px[q+1],px[q+2])}}}
+else f=intensityField(px,n,valid);
+return{f,alpha,cnt,unmatched}}
 export function runV2(i:DecodeIn):DecodeOut{
-const p=i.v2??V2_DEF,{f,alpha,cnt}=fieldOf(i);
+const p=i.v2??V2_DEF,{f,alpha,cnt,unmatched}=fieldOf(i);
 const r=i.view==='e2'?renderEnh(f,i.w,i.h,p.enh,i.hi??null,{alpha,bg:p.bg}):renderReal(f,i.w,i.h,p.real,{ox:i.ox,oy:i.oy,alpha,bg:p.bg});
-return{out:r.out,ow:i.w,oh:i.h,bt:new Float32Array(0),stats:{valid:cnt,unmatched:0,min:null,flag:r.flag}}}
+return{out:r.out,ow:i.w,oh:i.h,bt:new Float32Array(0),stats:{valid:cnt,unmatched,min:null,flag:r.flag}}}
 export function histV2(i:DecodeIn):Hist{return histOf(fieldOf(i).f)}

@@ -58,7 +58,8 @@ get can():boolean{const m=this.mode;return m==='cmap'?this.engEff==='v2'||this.c
 get views():View[]{return this.engEff==='v2'?(this.mode==='vis'?['raw','e2']:['raw','real','e2']):this.mode==='vis'?['raw','cloud']:['raw','enh','cold','conv','ot','cool','cloud']}
 get btSource():string{return this.mode==='lum'?'estimated from source brightness, calibrated against GIBS':'decoded from GIBS colours'}
 private get wideZ(){const L=this.layer;return L?Math.min(this.cov==='fine'?5:4,L.maxzoom):4}
-curKey(){return`${this.view}|${this.thr}|${this.smoothLv}|${this.engEff}|${this.engEff==='v2'?v2Key(this.v2):''}`}
+get palOn(){return this.mode==='cmap'&&this.cmapOk}
+curKey(){return`${this.view}|${this.thr}|${this.smoothLv}|${this.engEff}|${this.engEff==='v2'?v2Key(this.v2)+(this.palOn?'|pal':'|hue'):''}`}
 async enable(on:boolean){
 this.on=on;
 if(!on){this.tok++;this.dtok++;this.stok++;this.saving=false;this.busy=false;this.removeAll();this.h.change();return}
@@ -103,9 +104,13 @@ if(L.kind==='vis'||b.size>=1200)break;
 this.frames.pop()}
 }catch{this.h.status(`${this.provName(L)} imagery could not be fetched by the browser. It may be blocked (CORS) or offline.`,'err')}
 this.idx=this.frames.length-1}
-async ensureCmap(){
-const L=this.anchor;
-if(!L||this.cmapState==='ok'||this.cmapState==='loading')return;
+cmapP:Promise<void>|null=null;
+ensureCmap():Promise<void>{
+if(this.cmapP)return this.cmapP;
+if(!this.anchor||this.cmapState!=='idle')return Promise.resolve();
+const p=this.loadCmap().finally(()=>{this.cmapP=null});this.cmapP=p;return p}
+private async loadCmap(){
+const L=this.anchor as SatLayer;
 this.cmapState='loading';this.h.change();
 try{
 const r=await fetch(`/api/cmap?layer=${encodeURIComponent(L.id)}`);
@@ -113,8 +118,9 @@ if(!r.ok)throw new Error(`HTTP ${r.status}`);
 const c=parseColormap(await r.text());
 this.cmap=c;this.cmapState=c.usable?'ok':'unusable'
 }catch{this.cmapState='error'}
+if(this.cmapOk&&this.engEff==='v2'){this.wmeta=null;this.wbt=null;this.invalidate()}
 this.h.change();
-if(this.cmapOk&&this.mode==='cmap')this.scheduleDecode()}
+if(this.mode==='cmap')this.scheduleDecode()}
 private loadLum(L:SatLayer){
 if(this.lums.has(this.key))return;
 try{
@@ -302,7 +308,7 @@ if(view==='cool'&&prevOk&&mode!=='vis')prev=await this.mosaic(L,pt,r);
 const native=!wide&&r.z===L.maxzoom&&this.map.getZoom()>=L.maxzoom-0.5;
 const eng=this.engEff,scale=eng==='v1'&&w*h<=1100000&&(view==='enh'||view==='cold'||view==='cloud')?2:1;
 const lum=mode==='lum'?(this.lumFit as Fit).lut:null,c=this.cmap;
-const job:DecodeIn={w,h,cur,prev,view,thr:this.thr,native,rgb:mode==='cmap'&&c&&eng==='v1'?c.rgb.slice():new Uint8Array(0),btv:mode==='cmap'&&c&&eng==='v1'?c.bt.slice():new Float32Array(0),lum,src,mask:diskArrays(r),smooth:this.smoothLv,scale,ppd:ppdOf(r.z),eng,v2:JSON.parse(JSON.stringify(this.v2)),hi,ox:r.x0*TS,oy:r.y0*TS};
+const job:DecodeIn={w,h,cur,prev,view,thr:this.thr,native,rgb:this.palOn&&c?c.rgb.slice():new Uint8Array(0),btv:this.palOn&&c?c.bt.slice():new Float32Array(0),lum,src,mask:diskArrays(r),smooth:this.smoothLv,scale,ppd:ppdOf(r.z),eng,v2:JSON.parse(JSON.stringify(this.v2)),hi,ox:r.x0*TS,oy:r.y0*TS};
 const key=this.curKey(),box=boxOf(r);
 const mk=(res:{ow:number;oh:number;stats:Stats}):Meta=>({z:r.z,x0:r.x0,y0:r.y0,w,h,ow:res.ow,oh:res.oh,native,time:t,view,key,stats:res.stats,prevOk,wide,src,box,eng});
 return{job,mk}}
@@ -315,9 +321,9 @@ if(!this.on||!L||t==null||this.playing||this.busy||this.loopMode||this.saving)re
 const mode=this.mode;
 if(!mode)return;
 if(this.engEff==='v2'&&this.view==='raw'){this.dstat='';this.dkind='info';this.applyOpacity();this.h.change();return}
-if(mode==='cmap'&&this.engEff==='v1'){
-if(this.cmapState==='idle'||this.cmapState==='loading'){await this.ensureCmap();return}
-if(!this.cmapOk)return}
+if(mode==='cmap'){
+if(this.cmapState==='idle'||this.cmapState==='loading'){await this.ensureCmap();if(this.engEff==='v1'||this.cmapOk)return}
+if(this.engEff==='v1'&&!this.cmapOk)return}
 if(mode==='lum'&&!this.lumFit){
 if(!this.cal.has(this.key))await this.calibrate(L);
 if(!this.lumFit)return}
@@ -470,6 +476,7 @@ if(!this.on||!L||!this.frames.length)return false;
 if(this.loopMode){if(byPlay&&this.fits())return true;this.dropLoop(false)}
 if(this.saving)return false;
 this.saving=true;this.byPlay=byPlay;this.errs=0;
+if(this.mode==='cmap'&&(this.cmapState==='idle'||this.cmapState==='loading')){this.cstat='Loading the GIBS colormap';this.h.change();await this.ensureCmap();if(!this.saving||!this.on){this.saving=false;return false}}
 const my=++this.stok,N=this.frames.length,times=this.frames.slice(),view=this.view,dec=view!=='raw'&&this.can&&!!this.mode,needRaw=!dec||this.mix<1;
 const zoom=m.getZoom(),bb=m.getBounds(),vb:Box={w:bb.getWest(),s:bb.getSouth(),e:bb.getEast(),n:bb.getNorth()};
 const sets:{r:TileRng;wide:boolean}[]=[];

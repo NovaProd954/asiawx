@@ -1,5 +1,5 @@
 import {describe,it,expect} from 'vitest';
-import {parseBT,parseColormap,buildLut} from './colormap';
+import {parseBT,parseColormap,buildLut,intervalMid} from './colormap';
 import {run,render,decodeBT,enhColor,type View} from './decode';
 import {parseDuration,latestFrames,parseLayer,buildTileUrl,LAYERS} from '../../api/_wmts';
 import {tileRange,lonToX,xToLon,latToY,yToLat} from './controller';
@@ -25,8 +25,9 @@ const px=(bts:number[])=>{const a=new Uint8ClampedArray(bts.length*4);bts.forEac
 const real=`<ColorMaps><ColorMap title="Infrared Brightness Temperature" units="\u00b0C"><Entries>${[-92.1,-91.1,-90.1,-89.1,-88.1,-87.1,-86.1,-85.1,-84.1,-83.1].map((a,i)=>`<ColorMapEntry rgb="${10+i},${20+i},${30+i}" transparent="false" sourceValue="(${a},${(a+1).toFixed(1)}]" value="(${a},${(a+1).toFixed(1)}]" ref="${i}"/>`).join('')}<ColorMapEntry rgb="1,1,1" transparent="false" value="(56.9,+INF)" ref="161"/></Entries></ColorMap><ColorMap title="No Data"><Entries><ColorMapEntry rgb="0,0,0" transparent="true" nodata="true" ref="162"/></Entries></ColorMap></ColorMaps>`;
 describe('real GIBS colormap format',()=>{
 const c=parseColormap(real);
-it('reads interval midpoints with units from the ColorMap element',()=>{expect(c.n).toBe(10);expect(c.bt[0]).toBeCloseTo(-91.6,1);expect(c.usable).toBe(true)});
-it('skips open-ended and no-data entries',()=>{expect(c.total).toBe(11);expect(Array.from(c.bt).every(v=>v<0)).toBe(true)});
+it('reads interval midpoints with units from the ColorMap element',()=>{expect(c.n).toBe(11);expect(c.bt[0]).toBeCloseTo(-91.6,1);expect(c.usable).toBe(true)});
+it('keeps open-ended entries at their finite bound and skips no-data entries',()=>{expect(c.total).toBe(11);expect(c.n).toBe(11);expect(Math.max(...Array.from(c.bt))).toBeCloseTo(56.9,1);expect(c.rgb.slice(30,33)).toEqual(Uint8Array.from([1,1,1]))});
+it('reads open-ended cold entries and refuses both-sided infinity',()=>{expect(intervalMid('(-INF,-92.1]')).toBeCloseTo(-92.1);expect(intervalMid('[-inf,+inf)')).toBeNull();expect(intervalMid('(56.9,+INF)')).toBeCloseTo(56.9)});
 it('converts Kelvin ranges',()=>{const k=parseColormap(real.replace('units="\u00b0C"','units="K"').replace(/\(-(\d+)\.\d,-(\d+)\.\d\]/g,'(200,201]'));expect(k.bt[0]).toBeCloseTo(200.5-273.15,1)});
 it('ignores ranges when no unit is given',()=>{expect(parseColormap(real.replace(' units="\u00b0C"','')).usable).toBe(false)});
 });
