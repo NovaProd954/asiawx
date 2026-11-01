@@ -3,7 +3,8 @@ export const toSpeedDir=(u:number,v:number)=>({speed:Math.hypot(u,v),dir:(Math.a
 export const msToKt=(x:number)=>x*1.943844;
 export const msToKmh=(x:number)=>x*3.6;
 export interface Geom{lon0:number;lat0:number;d:number;nx:number;ny:number}
-export interface Field{g:Geom;u:Float32Array;v:Float32Array}
+export interface Field{g:Geom;u:Float32Array;v:Float32Array;c?:Float32Array}
+export const confAt=(f:Field,lon:number,lat:number):number=>{if(!f.c)return 1;const g=f.g,i=Math.max(0,Math.min(g.nx-1,Math.round((lon-g.lon0)/g.d))),j=Math.max(0,Math.min(g.ny-1,Math.round((lat-g.lat0)/g.d)));return f.c[j*g.nx+i]}
 export function sampleInto(f:Field,lon:number,lat:number,o:Float32Array):boolean{
 const g=f.g,fx=(lon-g.lon0)/g.d,fy=(lat-g.lat0)/g.d;
 if(!(fx>=0&&fy>=0&&fx<=g.nx-1&&fy<=g.ny-1))return false;

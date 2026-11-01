@@ -1,0 +1,43 @@
+import {btLut} from './pal';
+import {lumOf} from './calib';
+import {diskVis} from './geo';
+import {run,decodeBT,smooth,clearRef,applyMask,type DecodeIn,type DecodeOut} from './decode';
+export const FUSE_TOP=0.5;
+export function cloudAlpha(bt:Float32Array,w:number,h:number,ppd:number,lv:number):Float32Array{
+const n=w*h,a=new Float32Array(n);
+let any=false;
+for(let i=0;i<n;i++)if(bt[i]===bt[i]){any=true;break}
+if(!any)return a;
+const s=smooth(bt,w,h,Math.max(lv,1)),ref=clearRef(s,w,h,ppd,0.9,true,-100,60);
+for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+const i=y*w+x,v=s[i];if(v!==v)continue;
+const r=ref(x,y);if(r!==r)continue;
+const t=Math.max(0,Math.min(1,(r-v-3)/23)),e=t*t*(3-2*t);
+if(e>0.01)a[i]=e}
+return a}
+export function composite(cb:Uint8ClampedArray,ab:Float32Array,ct:Uint8ClampedArray|null,at:Float32Array|null,top:number,vis:((i:number)=>number)|null,n:number):{out:Uint8ClampedArray;flag:number}{
+const out=new Uint8ClampedArray(n*4);
+let flag=0;
+for(let i=0;i<n;i++){
+const k=vis?vis(i):1;if(k<=0)continue;
+const aB=ab[i]*k,aT=at?at[i]*k*top:0,a=aT+aB*(1-aT);
+if(a<0.004)continue;
+const p=i<<2,wb=aB*(1-aT);
+if(at&&aT>0){out[p]=(ct![p]*aT+cb[p]*wb)/a;out[p+1]=(ct![p+1]*aT+cb[p+1]*wb)/a;out[p+2]=(ct![p+2]*aT+cb[p+2]*wb)/a}
+else{out[p]=cb[p];out[p+1]=cb[p+1];out[p+2]=cb[p+2]}
+out[p+3]=Math.round(a*255);
+if(a>0.5)flag++}
+return{out,flag}}
+export function runFuse(i:DecodeIn):DecodeOut{
+const {w,h}=i,n=w*h,o={unmatched:0},lv=i.smooth??1,ppd=i.ppd??11.4,top=Math.max(0,Math.min(1,i.fuse?.top??FUSE_TOP));
+const bg=i.rgb.length?decodeBT(i.cur,btLut(i.rgb,i.btv),o):new Float32Array(n).fill(NaN);
+const L=i.lum,j=i.cur2??null,bj=j&&L?decodeBT(j,(r,g,b)=>L[lumOf(r,g,b)],{unmatched:0}):new Float32Array(n).fill(NaN);
+if(i.mask){applyMask(bg,w,h,i.mask);applyMask(bj,w,h,i.mask)}
+const m=i.mask,vis=m?(k:number)=>diskVis(m.row[(k/w)|0]*m.col[k%w]):null;
+const ag=cloudAlpha(bg,w,h,ppd,lv),aj=j&&L?cloudAlpha(bj,w,h,ppd,lv):null;
+const {out,flag}=composite(i.cur,ag,j,aj,top,vis,n);
+const bt=new Float32Array(n);
+let valid=0,min=Infinity;
+for(let k=0;k<n;k++){const a=bg[k],b=bj[k],v=a===a?a:b;bt[k]=v;if(v===v){valid++;if(v<min)min=v}}
+return{out,ow:w,oh:h,bt,stats:{valid,unmatched:o.unmatched,min:valid?min:null,flag}}}
+export const runAny=(i:DecodeIn):DecodeOut=>i.fuse?runFuse(i):run(i);

@@ -2,9 +2,10 @@ import type maplibregl from 'maplibre-gl';
 import {health} from '../lib/http';
 import {buildTileUrl,type TFmt} from '../../api/_wmts';
 import {parseColormap,type CMap} from './colormap';
-import {run,calibrate,type DecodeIn,type DecodeOut,type CalibIn,type Stats,type View,type Src,type Eng} from './decode';
+import {calibrate,type DecodeIn,type DecodeOut,type CalibIn,type Stats,type View,type Src,type Eng} from './decode';
 import {V2_DEF,v2Key,mergeHist,hiOf,histV2,type V2P,type Hist} from './real';
-import {Pool} from './pool';
+import {Pool,type Tiles} from './pool';
+import {runAny,FUSE_TOP} from './fuse';
 import type {Fit} from './calib';
 import {TS,lonToX,latToY,xToLon,yToLat,tileRange,wideRange,padBox,boxOf,inside,diskArrays,ppdOf,type TileRng,type Box} from './geo';
 import {cacheInfo,clearCache,keepStorage,fmtBytes,supported} from './store';
@@ -17,21 +18,21 @@ export interface Hooks{change:()=>void;status:(m:string,k:'info'|'warn'|'err',re
 export interface Meta{z:number;x0:number;y0:number;w:number;h:number;ow:number;oh:number;native:boolean;time:number;view:View;key:string;stats:Stats;prevOk:boolean;wide:boolean;src:Src;box:Box;eng:Eng}
 type Coords=[[number,number],[number,number],[number,number],[number,number]];
 interface WideEntry{url:string;meta:Meta;bt:Float32Array;coords:Coords}
-export type Mode='cmap'|'lum'|'vis';
+export type Mode='cmap'|'lum'|'vis'|'fuse';
 export type Cov='fast'|'fine';
 const abs=(u:string)=>u.startsWith('/')?location.origin+u:u;
 export const tileUrl=(L:{template:string;tfmt:TFmt},t:number)=>abs(buildTileUrl(L.template,t,L.tfmt));
 const HIDE=0.001,COOL_STEP=1800,DAY=864e5;
 export const lumCapable=(L:{provider:string;id:string})=>(L.provider==='jma'&&L.id==='B13/TBB')||(L.provider==='realearth'&&L.id==='globalir');
 export const visCapable=(L:{kind:string;id:string})=>L.kind==='vis'||L.id==='REP/ETC'||L.id==='globalvis';
-export const modeOf=(L:SatLayer|null):Mode|null=>!L?null:L.decode?'cmap':lumCapable(L)?'lum':visCapable(L)?'vis':null;
+export const modeOf=(L:SatLayer|null):Mode|null=>!L?null:L.provider==='fused'?'fuse':L.decode?'cmap':lumCapable(L)?'lum':visCapable(L)?'vis':null;
 const LK=(L:{provider:string;id:string})=>`asiawx.lum.v1.${L.provider}.${L.id}`;
 const BND=['sat-coast','sat-bnd-case','sat-bnd','sat-adm1'];
 export class SatController{
 on=false;key='ir';catalog:Catalog|null=null;frames:number[]=[];idx=0;opacity=0.85;view:View='raw';thr=-52;mix=1;smoothLv=2;cov:Cov='fine';borders=true;
 busy=false;playing=false;cmap:CMap|null=null;cmapState:'idle'|'loading'|'ok'|'unusable'|'error'='idle';
 meta:Meta|null=null;wmeta:Meta|null=null;bt:Float32Array|null=null;wbt:Float32Array|null=null;dstat='';dkind:'info'|'warn'|'err'='info';loading=false;
-lums=new Map<string,Fit>();cal=new Map<string,{s:'working'|'ok'|'fail';m:string}>();saving=false;cstat='';cinfo='';eng:Eng='v2';v2:V2P=JSON.parse(JSON.stringify(V2_DEF));loopMode=false;lost=false;fadeMs=0;
+lums=new Map<string,Fit>();cal=new Map<string,{s:'working'|'ok'|'fail';m:string}>();saving=false;cstat='';cinfo='';eng:Eng='v2';v2:V2P=JSON.parse(JSON.stringify(V2_DEF));loopMode=false;lost=false;fadeMs=0;fuseTop=FUSE_TOP;fparts:{g:SatLayer;j:SatLayer}|null=null;
 private lneedRaw=false;private rbox:Box|null=null;private rz=0;private pt:{L:SatLayer;times:number[]}|null=null;private tstore=new Map<string,ArrayBuffer>();private tseen=new Set<string>();private proto=false;private lwide:(Blob|null)[]=[];private ldet:(Blob|null)[]=[];private lwc:Coords|null=null;private ldc:Coords|null=null;private lnear=false;private lN=0;private lres=new Map<number,{raw:string|null;dec:string[];urls:string[];ok:boolean;p:Promise<void>}>();private want=-1;private lcur=-1;private fadeA=-1;private rid=0;private lraf=0;private lbox:Box|null=null;private lz=0;private byPlay=false;private pool:Pool|null=null;
 private front:string|null=null;private tok=0;private dtok=0;private stok=0;private dtimer=0;private errs=0;private worker:Worker|null=null;private wid=0;
 private pending=new Map<number,(r:any)=>void>();private cache=new Map<string,ImageBitmap|null>();private decUrl:string|null=null;private wurl:string|null=null;private wcache=new Map<string,WideEntry>();
@@ -52,14 +53,15 @@ get mode():Mode|null{return modeOf(this.layer)}
 get time():number|null{return this.frames[this.idx]??null}
 get ready(){return this.on&&this.frames.length>0}
 get cmapOk(){return this.cmapState==='ok'&&!!this.cmap?.usable}
-get lumFit():Fit|null{const f=this.lums.get(this.key);return f&&f.ok?f:null}
+get lumKey():string{return this.mode==='fuse'?this.fparts?.j.key??'':this.key}
+get lumFit():Fit|null{const f=this.lums.get(this.lumKey);return f&&f.ok?f:null}
 get engEff():Eng{return this.eng==='v2'&&(this.mode==='cmap'||this.mode==='vis')?'v2':'v1'}
-get can():boolean{const m=this.mode;return m==='cmap'?this.engEff==='v2'||this.cmapOk:m==='lum'?!!this.lumFit:m==='vis'}
-get views():View[]{return this.engEff==='v2'?(this.mode==='vis'?['raw','e2']:['raw','real','e2']):this.mode==='vis'?['raw','cloud']:['raw','enh','cold','conv','ot','cool','cloud']}
+get can():boolean{const m=this.mode;return m==='fuse'?this.cmapOk&&!!this.lumFit:m==='cmap'?this.engEff==='v2'||this.cmapOk:m==='lum'?!!this.lumFit:m==='vis'}
+get views():View[]{return this.mode==='fuse'?['fuse']:this.engEff==='v2'?(this.mode==='vis'?['raw','e2']:['raw','real','e2']):this.mode==='vis'?['raw','cloud']:['raw','enh','cold','conv','ot','cool','cloud']}
 get btSource():string{return this.mode==='lum'?'estimated from source brightness, calibrated against GIBS':'decoded from GIBS colours'}
 private get wideZ(){const L=this.layer;return L?Math.min(this.cov==='fine'?5:4,L.maxzoom):4}
-get palOn(){return this.mode==='cmap'&&this.cmapOk}
-curKey(){return`${this.view}|${this.thr}|${this.smoothLv}|${this.engEff}|${this.engEff==='v2'?v2Key(this.v2)+(this.palOn?'|pal':'|hue'):''}`}
+get palOn(){return(this.mode==='cmap'||this.mode==='fuse')&&this.cmapOk}
+curKey(){return`${this.view}|${this.thr}|${this.smoothLv}|${this.engEff}|${this.mode==='fuse'?this.fuseTop:''}|${this.engEff==='v2'?v2Key(this.v2)+(this.palOn?'|pal':'|hue'):''}`}
 async enable(on:boolean){
 this.on=on;
 if(!on){this.tok++;this.dtok++;this.stok++;this.saving=false;this.busy=false;this.removeAll();this.h.change();return}
@@ -73,27 +75,56 @@ try{
 const t0=performance.now(),r=await fetch('/api/sat',{signal:AbortSignal.timeout(45000)}),j=await r.json().catch(()=>null) as (Catalog&{error?:string;diag?:string[]})|null;
 if(!r.ok||!j?.layers?.length)throw new Error(j?.diag?.join(' | ')||j?.error||`HTTP ${r.status}`);
 health.set('sat',{ok:true,lastOk:Date.now(),err:null,ms:Math.round(performance.now()-t0)});
-this.catalog=j;this.h.status('','info');
+this.addFused(j);this.catalog=j;this.h.status('','info');
 if(!this.layer)this.key=(j.layers.find(l=>l.key==='ir')??j.layers[0]).key;
 await this.selectLayer(this.key)
 }catch(e){
 const p=health.get('sat');health.set('sat',{ok:false,lastOk:p?.lastOk??null,err:e instanceof Error?e.message:'failed',ms:null});
 this.on=false;this.h.status(`Satellite catalog unavailable: ${e instanceof Error?e.message:'unknown error'}`,'err',()=>void this.enable(true))}
 finally{this.loading=false;this.h.change()}}
+private addFused(c:Catalog){
+c.layers=c.layers.filter(l=>l.provider!=='fused');c.providers=c.providers.filter(p=>p.id!=='fused');this.fparts=null;
+const g=c.layers.find(l=>l.provider==='gibs'&&l.kind==='ir'&&l.decode),j=c.layers.find(l=>l.provider==='jma'&&l.id==='B13/TBB');
+const no=(m:string)=>{c.providers.push({id:'fused',name:'Fused IR',ok:false,msg:m})};
+if(!g||!j){no(`needs both layers, missing ${[!g&&'NASA GIBS Clean infrared',!j&&'JMA Infrared Band 13'].filter(Boolean).join(' and ')}`);return}
+const times=g.times.filter(t=>j.times.includes(t));
+if(times.length<2){no('the two layers share fewer than 2 frame times');return}
+const f:SatLayer={key:'fused',id:'FUSED/IR',name:'Fused IR (JMA over Clean IR)',kind:'ir',tms:g.tms,maxzoom:Math.min(g.maxzoom,j.maxzoom),format:'image/png',template:'',times,step:g.step||600,provider:'fused',tfmt:'iso',attribution:`${g.attribution??''}; ${j.attribution??''}`,decode:false};
+c.layers.splice(c.layers.indexOf(g)+1,0,f);
+c.providers.push({id:'fused',name:'Fused IR (JMA over NASA GIBS)',ok:true,msg:''});
+this.fparts={g,j}}
+async windPrep():Promise<{ok:boolean;why:string;times:number[]}>{
+const no=(why:string)=>({ok:false,why,times:[] as number[]});
+if(!this.catalog){await this.loadCatalog();if(!this.catalog)return no('The satellite catalog is unavailable')}
+const p=this.fparts;
+if(!p)return no(this.catalog?.providers.find(x=>x.id==='fused')?.msg||'Fused IR needs both JMA and GIBS infrared layers');
+await this.ensureCmap();
+if(!this.cmapOk)return no('The GIBS colormap could not be loaded');
+if(!this.lums.get(p.j.key)){if(!this.cal.has(p.j.key))await this.calibrate(p.j);if(!this.lums.get(p.j.key)?.ok)return no(`JMA calibration failed. ${this.cal.get(p.j.key)?.m??''}`)}
+const f=this.catalog?.layers.find(l=>l.key==='fused');
+return f?{ok:true,why:'',times:f.times.slice()}:no('No common frames')}
+windInput(t:number,z:number){
+const p=this.fparts,c=this.cmap,f=p?this.lums.get(p.j.key):null;
+if(!p||!c||!f?.ok)return null;
+const r=wideRange(z,Math.min(p.g.maxzoom,p.j.maxzoom)),w=(r.x1-r.x0+1)*TS,h=(r.y1-r.y0+1)*TS;
+return{r,w,h,ppd:ppdOf(r.z),job:{w,h,cur:new Uint8ClampedArray(0),cur2:null as Uint8ClampedArray|null,rgb:c.rgb.slice(),btv:c.bt.slice(),lum:f.lut,mask:diskArrays(r)},tiles:{w,h,cur:this.tilesOf(p.g,t,r),cur2:this.tilesOf(p.j,t,r),prev:null} as Tiles,win:{z:r.z,x0:r.x0,y0:r.y0,w,h},main:async()=>{const [a,b]=await Promise.all([this.mosaic(p.g,t,r),this.mosaic(p.j,t,r)]);return{cur:a,cur2:b}}}}
 async selectLayer(key:string){
 this.key=key;
 if(!this.on){this.h.change();return}
 this.tok++;this.stok++;this.saving=false;this.removeAll();this.meta=null;this.wmeta=null;this.bt=null;this.wbt=null;
 const L=this.layer;if(!L){this.frames=[];return}
-if(!this.views.includes(this.view))this.view=this.mode==='vis'?'cloud':'raw';
+if(!this.views.includes(this.view))this.view=this.mode==='vis'?'cloud':this.mode==='fuse'?'fuse':'raw';
+if(this.mode==='fuse')this.mix=1;
 this.frames=L.times.slice();this.idx=this.frames.length-1;
 await this.probe(L);
 if(this.mode==='cmap')void this.ensureCmap();
 if(this.mode==='lum')this.loadLum(L);
+if(this.mode==='fuse'&&this.fparts){void this.ensureCmap();this.loadLum(this.fparts.j)}
 this.dstat='';
 await this.show();this.h.change()}
 provName(L:SatLayer|null){return this.catalog?.providers.find(p=>p.id===L?.provider)?.name??'Satellite'}
 private async probe(L:SatLayer){
+if(L.provider==='fused'){this.idx=this.frames.length-1;return}
 try{
 for(let k=0;k<3&&this.frames.length>3;k++){
 const u=tileUrl(L,this.frames[this.frames.length-1]).replace('{z}','3').replace('{y}','3').replace('{x}','6');
@@ -122,15 +153,15 @@ if(this.cmapOk&&this.engEff==='v2'){this.wmeta=null;this.wbt=null;this.invalidat
 this.h.change();
 if(this.mode==='cmap')this.scheduleDecode()}
 private loadLum(L:SatLayer){
-if(this.lums.has(this.key))return;
+if(this.lums.has(L.key))return;
 try{
 const j=JSON.parse(localStorage.getItem(LK(L))||'null');
 if(j&&Date.now()-j.at<14*DAY&&Array.isArray(j.lut)&&j.lut.length===256){
-this.lums.set(this.key,{ok:true,lut:Float32Array.from(j.lut),rms:j.rms,n:j.n,corr:j.corr,chroma:0,why:''});
-this.cal.set(this.key,{s:'ok',m:`RMS ${(+j.rms).toFixed(1)} K against GIBS, saved on this device ${new Date(j.at).toISOString().slice(0,10)}`})}
+this.lums.set(L.key,{ok:true,lut:Float32Array.from(j.lut),rms:j.rms,n:j.n,corr:j.corr,chroma:0,why:''});
+this.cal.set(L.key,{s:'ok',m:`RMS ${(+j.rms).toFixed(1)} K against GIBS, saved on this device ${new Date(j.at).toISOString().slice(0,10)}`})}
 }catch{}}
 async calibrate(L:SatLayer){
-const k=this.key,set=(s:'working'|'ok'|'fail',m:string)=>{this.cal.set(k,{s,m});this.h.change()};
+const k=L.key,set=(s:'working'|'ok'|'fail',m:string)=>{this.cal.set(k,{s,m});this.h.change()};
 set('working','Fitting a brightness to temperature curve against NASA GIBS Clean IR');
 try{
 const A=this.anchor;
@@ -149,8 +180,8 @@ try{localStorage.setItem(LK(L),JSON.stringify({at:Date.now(),lut:Array.from(fit.
 set('ok',`RMS ${fit.rms.toFixed(1)} K against GIBS over ${fit.n.toLocaleString('en-US')} px`)
 }catch{set('fail','Tiles for calibration could not be read. They may be blocked (CORS) or offline.')}}
 async recalibrate(){
-const L=this.layer;if(!L||this.mode!=='lum')return;
-this.lums.delete(this.key);this.cal.delete(this.key);
+const L=this.mode==='fuse'?this.fparts?.j:this.layer;if(!L||(this.mode!=='lum'&&this.mode!=='fuse'))return;
+this.lums.delete(L.key);this.cal.delete(L.key);
 try{localStorage.removeItem(LK(L))}catch{}
 await this.calibrate(L);this.scheduleDecode()}
 setIdx(i:number){
@@ -160,8 +191,9 @@ if(this.loopMode){if(n===this.lcur&&this.want===n)return;this.idx=n;this.showLoo
 if(n===this.idx&&this.front)return;
 this.idx=n;void this.show()}
 setOpacity(o:number){this.opacity=o;this.applyOpacity()}
-setMix(m:number){this.mix=m;if(this.loopMode&&m<1&&!this.lneedRaw){this.invalidate();return}this.applyOpacity()}
-private mixFor(v:View){return v==='enh'||v==='cloud'||v==='real'||v==='e2'?1:0.5}
+setMix(m:number){if(this.mode==='fuse')return;this.mix=m;if(this.loopMode&&m<1&&!this.lneedRaw){this.invalidate();return}this.applyOpacity()}
+private mixFor(v:View){return v==='enh'||v==='cloud'||v==='real'||v==='e2'||v==='fuse'?1:0.5}
+setFuseTop(t:number){this.fuseTop=t;this.invalidate();this.scheduleDecode()}
 private invalidate(){this.stok++;this.saving=false;this.dropLoop(true)}
 setEngine(e:Eng){
 this.eng=e;
@@ -239,11 +271,12 @@ async show(){
 const L=this.layer,t=this.time,m=this.map;
 if(!this.on||!L||t==null||!m.getStyle())return;
 this.ensureBorders();
+if(L.provider==='fused'){this.busy=false;this.applyOpacity();this.h.change();this.scheduleDecode();void this.refreshInfo();return}
 const tok=++this.tok,id=this.front==='sat-a'?'sat-b':'sat-a',url=tileUrl(L,t);
 this.busy=true;this.errs=0;
 this.removeBuf(id);
 m.addSource(id,{type:'raster',tiles:[url],tileSize:TS,maxzoom:L.maxzoom,attribution:L.attribution});
-m.addLayer({id,type:'raster',source:id,paint:{'raster-opacity':HIDE,'raster-fade-duration':0,'raster-resampling':'linear'}},this.before());
+m.addLayer({id,type:'raster',source:id,paint:{'raster-opacity':HIDE,'raster-opacity-transition':{duration:0,delay:0},'raster-fade-duration':0,'raster-resampling':'linear'}},this.before());
 const t0=performance.now();
 await this.loaded(id,7000);
 if(tok!==this.tok)return;
@@ -282,7 +315,7 @@ for(let i=0;i<(this.mobile?4:6);i++)jobs.push(lane());
 await Promise.all(jobs);
 return ctx.getImageData(0,0,w,h).data}
 private call<T>(kind:'decode'|'calib',job:DecodeIn|CalibIn):Promise<T>{
-const local=()=>Promise.resolve(kind==='decode'?run(job as DecodeIn):calibrate(job as CalibIn)) as Promise<T>;
+const local=()=>Promise.resolve(kind==='decode'?runAny(job as DecodeIn):calibrate(job as CalibIn)) as Promise<T>;
 if(!this.worker&&typeof Worker!=='undefined'){
 try{
 const w=new Worker(new URL('./worker.ts',import.meta.url),{type:'module'});
@@ -299,19 +332,26 @@ w.postMessage({id,kind,job})}).catch(()=>local())}
 private coordsOf(r:TileRng):Coords{
 const b=boxOf(r);
 return[[b.w,b.n],[b.e,b.n],[b.e,b.s],[b.w,b.s]]}
-private async job(L:SatLayer,t:number,r:TileRng,wide:boolean,hi:number|null=null){
-const w=(r.x1-r.x0+1)*TS,h=(r.y1-r.y0+1)*TS,view=this.view,mode=this.mode as Mode,src:Src=mode;
-const cur=await this.mosaic(L,t,r);
-let prev:Uint8ClampedArray|null=null;
-const pt=t-COOL_STEP,prevOk=this.frames.includes(pt);
-if(view==='cool'&&prevOk&&mode!=='vis')prev=await this.mosaic(L,pt,r);
+private tilesOf(L:SatLayer,time:number,r:TileRng){
+const base=tileUrl(L,time),o:{x:number;y:number;u:string}[]=[];
+for(let y=r.y0;y<=r.y1;y++)for(let x=r.x0;x<=r.x1;x++)o.push({x:x-r.x0,y:y-r.y0,u:base.replace('{z}',String(r.z)).replace('{y}',String(y)).replace('{x}',String(x))});
+return o}
+private async job(L:SatLayer,t:number,r:TileRng,wide:boolean,hi:number|null=null,lazy=false){
+const w=(r.x1-r.x0+1)*TS,h=(r.y1-r.y0+1)*TS,view=this.view,mode=this.mode as Mode,src:Src=mode==='fuse'?'cmap':mode,fz=mode==='fuse'?this.fparts:null;
+const pt=t-COOL_STEP,prevOk=this.frames.includes(pt),needPrev=view==='cool'&&prevOk&&mode!=='vis',E=new Uint8ClampedArray(0);
+let cur:Uint8ClampedArray=E,cur2:Uint8ClampedArray|null=null,prev:Uint8ClampedArray|null=null,tiles:Tiles|undefined;
+if(lazy){tiles={w,h,cur:this.tilesOf(fz?fz.g:L,t,r),cur2:fz?this.tilesOf(fz.j,t,r):null,prev:needPrev?this.tilesOf(L,pt,r):null}}
+else{
+const [a,b]=await Promise.all([this.mosaic(fz?fz.g:L,t,r),fz?this.mosaic(fz.j,t,r):Promise.resolve(null)]);
+cur=a;cur2=b;
+if(needPrev)prev=await this.mosaic(L,pt,r)}
 const native=!wide&&r.z===L.maxzoom&&this.map.getZoom()>=L.maxzoom-0.5;
 const eng=this.engEff,scale=eng==='v1'&&w*h<=4200000&&(view==='enh'||view==='cold'||view==='cloud')?2:1;
-const lum=mode==='lum'?(this.lumFit as Fit).lut:null,c=this.cmap;
-const job:DecodeIn={w,h,cur,prev,view,thr:this.thr,native,rgb:this.palOn&&c?c.rgb.slice():new Uint8Array(0),btv:this.palOn&&c?c.bt.slice():new Float32Array(0),lum,src,mask:diskArrays(r),smooth:this.smoothLv,scale,ppd:ppdOf(r.z),eng,v2:JSON.parse(JSON.stringify(this.v2)),hi,ox:r.x0*TS,oy:r.y0*TS};
+const lum=mode==='lum'||mode==='fuse'?(this.lumFit as Fit).lut:null,c=this.cmap;
+const job:DecodeIn={w,h,cur,cur2,fuse:fz?{top:this.fuseTop}:null,prev,view,thr:this.thr,native,rgb:this.palOn&&c?c.rgb.slice():new Uint8Array(0),btv:this.palOn&&c?c.bt.slice():new Float32Array(0),lum,src,mask:diskArrays(r),smooth:this.smoothLv,scale,ppd:ppdOf(r.z),eng,v2:JSON.parse(JSON.stringify(this.v2)),hi,ox:r.x0*TS,oy:r.y0*TS};
 const key=this.curKey(),box=boxOf(r);
 const mk=(res:{ow:number;oh:number;stats:Stats}):Meta=>({z:r.z,x0:r.x0,y0:r.y0,w,h,ow:res.ow,oh:res.oh,native,time:t,view,key,stats:res.stats,prevOk,wide,src,box,eng});
-return{job,mk}}
+return{job,mk,tiles}}
 private async process(L:SatLayer,t:number,r:TileRng,wide:boolean){
 const {job,mk}=await this.job(L,t,r,wide),res=await this.call<DecodeOut>('decode',job);
 return{res,meta:mk(res)}}
@@ -321,6 +361,11 @@ if(!this.on||!L||t==null||this.playing||this.busy||this.loopMode||this.saving)re
 const mode=this.mode;
 if(!mode)return;
 if(this.engEff==='v2'&&this.view==='raw'){this.dstat='';this.dkind='info';this.applyOpacity();this.h.change();return}
+if(mode==='fuse'){
+const p=this.fparts;if(!p)return;
+if(this.cmapState==='idle'||this.cmapState==='loading')await this.ensureCmap();
+if(!this.cmapOk){this.dstat='Fused IR needs the GIBS colormap, which could not be loaded';this.dkind='err';this.h.change();return}
+if(!this.lumFit){if(!this.cal.has(p.j.key))await this.calibrate(p.j);if(!this.lumFit){this.dstat=`Fused IR needs the JMA Band 13 calibration. ${this.cal.get(p.j.key)?.m??''}`;this.dkind='err';this.h.change();return}}}
 if(mode==='cmap'){
 if(this.cmapState==='idle'||this.cmapState==='loading'){await this.ensureCmap();if(this.engEff==='v1'||this.cmapOk)return}
 if(this.engEff==='v1'&&!this.cmapOk)return}
@@ -389,7 +434,7 @@ const src=m.getSource(id) as maplibregl.ImageSource|undefined;
 if(src)src.updateImage({url,coordinates:coords});
 else{
 m.addSource(id,{type:'image',url,coordinates:coords});
-m.addLayer({id,type:'raster',source:id,paint:{'raster-opacity':0,'raster-fade-duration':0,'raster-resampling':nearest?'nearest':'linear'}},id==='sat-dec'?this.anchor0():m.getLayer('sat-dec')?'sat-dec':this.anchor0())}
+m.addLayer({id,type:'raster',source:id,paint:{'raster-opacity':0,'raster-opacity-transition':{duration:0,delay:0},'raster-fade-duration':0,'raster-resampling':nearest?'nearest':'linear'}},id==='sat-dec'?this.anchor0():m.getLayer('sat-dec')?'sat-dec':this.anchor0())}
 if(m.getLayer(id))m.setPaintProperty(id,'raster-resampling',nearest?'nearest':'linear')}
 private async paint(px:Uint8ClampedArray,w:number,h:number,r:TileRng,nearest:boolean){
 const url=await this.encode(px,w,h),old=this.decUrl;
@@ -398,7 +443,7 @@ this.setImage('sat-dec',url,this.coordsOf(r),nearest);
 if(old)setTimeout(()=>URL.revokeObjectURL(old),2000)}
 private redrawDecoded(){if(this.on&&this.can&&this.ready)this.scheduleDecode()}
 btAt(lon:number,lat:number):number|null{
-if(this.mode==='vis'||this.time==null||this.engEff==='v2')return null;
+if(this.mode==='vis'||this.mode==='fuse'||this.time==null||this.engEff==='v2')return null;
 const pick=(d:Meta|null,bt:Float32Array|null)=>{
 if(!d||!bt||d.time!==this.time)return null;
 const px=Math.floor((lonToX(lon,d.z)-d.x0)*TS),py=Math.floor((latToY(lat,d.z)-d.y0)*TS);
@@ -418,6 +463,25 @@ private get hasDec(){return this.lwide.length>0||this.ldet.length>0}
 private getPool(){
 if(!this.pool){const hc=typeof navigator!=='undefined'?navigator.hardwareConcurrency||4:4;this.pool=new Pool(Math.max(1,Math.min(this.mobile?3:4,hc-1)))}
 return this.pool}
+private fastTiles=typeof OffscreenCanvas!=='undefined'&&typeof createImageBitmap!=='undefined';
+private noFast(e:unknown){if(/Offscreen|2d context|worker failed|no workers/i.test(e instanceof Error?e.message:String(e)))this.fastTiles=false}
+private async frameBlob(L:SatLayer,t:number,r:TileRng,wide:boolean,hi:number|null):Promise<Blob>{
+const p=this.getPool();
+if(p.size&&this.fastTiles){
+try{
+const {job,tiles}=await this.job(L,t,r,wide,hi,true);
+type R={blob?:Blob;out?:Uint8ClampedArray;ow:number;oh:number};
+const o=await p.call<R>('ldec',job,[],tiles);
+return o.blob??await this.encodeBlob(o.out as Uint8ClampedArray,o.ow,o.oh)
+}catch(e){this.noFast(e)}}
+const {job}=await this.job(L,t,r,wide,hi);
+return this.decBlob(job)}
+private async frameHist(L:SatLayer,t:number,r:TileRng,wide:boolean):Promise<Hist>{
+const p=this.getPool();
+if(p.size&&this.fastTiles){
+try{const {job,tiles}=await this.job(L,t,r,wide,null,true);return await p.call<Hist>('hist',job,[],tiles)}catch(e){this.noFast(e)}}
+const {job}=await this.job(L,t,r,wide,null);
+return this.hist(job)}
 private async hist(job:DecodeIn):Promise<Hist>{
 const p=this.getPool();
 if(p.size){try{return await p.call<Hist>('hist',job)}catch{}}
@@ -426,8 +490,8 @@ private async decBlob(job:DecodeIn):Promise<Blob>{
 type R={blob?:Blob;out?:Uint8ClampedArray;ow:number;oh:number};
 const p=this.getPool();
 let r:R;
-if(p.size){try{r=await p.call<R>('ldec',job)}catch{const o=run(job);r={out:o.out,ow:o.ow,oh:o.oh}}}
-else{const o=run(job);r={out:o.out,ow:o.ow,oh:o.oh}}
+if(p.size){try{r=await p.call<R>('ldec',job)}catch{const o=runAny(job);r={out:o.out,ow:o.ow,oh:o.oh}}}
+else{const o=runAny(job);r={out:o.out,ow:o.ow,oh:o.oh}}
 return r.blob??await this.encodeBlob(r.out as Uint8ClampedArray,r.ow,r.oh)}
 private waitAll(ids:string[],on:(n:number)=>void,stall:number,alive:()=>boolean=()=>true):Promise<void>{
 const m=this.map;
@@ -476,8 +540,10 @@ if(!this.on||!L||!this.frames.length)return false;
 if(this.loopMode){if(byPlay&&this.fits())return true;this.dropLoop(false)}
 if(this.saving)return false;
 this.saving=true;this.byPlay=byPlay;this.errs=0;
-if(this.mode==='cmap'&&(this.cmapState==='idle'||this.cmapState==='loading')){this.cstat='Loading the GIBS colormap';this.h.change();await this.ensureCmap();if(!this.saving||!this.on){this.saving=false;return false}}
-const my=++this.stok,N=this.frames.length,times=this.frames.slice(),view=this.view,dec=view!=='raw'&&this.can&&!!this.mode,needRaw=!dec||this.mix<1;
+if((this.mode==='cmap'||this.mode==='fuse')&&(this.cmapState==='idle'||this.cmapState==='loading')){this.cstat='Loading the GIBS colormap';this.h.change();await this.ensureCmap();if(!this.saving||!this.on){this.saving=false;return false}}
+if(this.mode==='fuse'&&this.fparts&&!this.lumFit&&!this.cal.has(this.fparts.j.key)){this.cstat='Calibrating JMA against GIBS';this.h.change();await this.calibrate(this.fparts.j);if(!this.saving||!this.on){this.saving=false;return false}}
+const my=++this.stok,N=this.frames.length,times=this.frames.slice(),view=this.view,dec=view!=='raw'&&this.can&&!!this.mode,fz=this.mode==='fuse',needRaw=fz?false:!dec||this.mix<1;
+if(fz&&!dec){this.saving=false;this.cstat='Fused IR needs the GIBS colormap and the JMA calibration before a loop can be saved';this.h.change();return false}
 const zoom=m.getZoom(),bb=m.getBounds(),vb:Box={w:bb.getWest(),s:bb.getSouth(),e:bb.getEast(),n:bb.getNorth()};
 const sets:{r:TileRng;wide:boolean}[]=[];
 if(dec){
@@ -517,14 +583,14 @@ let hi:number|null=null;
 if(calib){
 const idx=Array.from({length:calib},(_,i)=>Math.round(i*(N-1)/Math.max(1,calib-1))),hs:Hist[]=[];
 let ci=0;
-const lane=async()=>{while(!stale()){const j=ci++;if(j>=idx.length)return;const {job}=await this.job(L,times[idx[j]],sets[0].r,sets[0].wide,null);hs[j]=await this.hist(job);done++;prog()}};
+const lane=async()=>{while(!stale()){const j=ci++;if(j>=idx.length)return;hs[j]=await this.frameHist(L,times[idx[j]],sets[0].r,sets[0].wide);done++;prog()}};
 await Promise.all(Array.from({length:Math.min(lanes,idx.length)},lane));
 if(stale())return;
 hi=hiOf(mergeHist(hs))}
 const tasks:{k:number;s:number}[]=[];
 for(let k=0;k<N;k++)for(let si=0;si<sets.length;si++)tasks.push({k,s:si});
 let ti=0;
-const lane=async()=>{while(!stale()){const i=ti++;if(i>=tasks.length)return;const {k,s:si}=tasks[i],{job}=await this.job(L,times[k],sets[si].r,sets[si].wide,hi),blob=await this.decBlob(job);(sets[si].wide?wide:det)[k]=blob;done++;prog()}};
+const lane=async()=>{while(!stale()){const i=ti++;if(i>=tasks.length)return;const {k,s:si}=tasks[i],blob=await this.frameBlob(L,times[k],sets[si].r,sets[si].wide,hi);(sets[si].wide?wide:det)[k]=blob;done++;prog()}};
 await Promise.all(Array.from({length:lanes},lane))};
 try{
 this.ensureBorders();prog();
@@ -604,7 +670,7 @@ const a=this.lcur;
 this.want=n;this.ensureRing(n);
 const e=this.lres.get(n),go=()=>{
 if(this.want!==n||!this.loopMode)return;
-const fade=this.fadeMs>0&&this.playing&&a>=0&&n===a+1&&!!this.lres.get(a)?.ok;
+const fade=this.fadeMs>0&&this.playing&&!this.hasDec&&a>=0&&n===a+1&&!!this.lres.get(a)?.ok;
 this.lcur=n;this.runPaint(a,n,fade);
 if(!fade)window.setTimeout(()=>{if(this.loopMode&&this.lcur===n)this.ensureRing(n)},0)};
 if(!e||e.ok)go();else void e.p.then(go)}

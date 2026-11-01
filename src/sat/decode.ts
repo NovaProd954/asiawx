@@ -2,11 +2,11 @@ import {btLut} from './pal';
 import {fitCurve,lumOf,type Fit} from './calib';
 import {LIMB,diskVis} from './geo';
 import {runV2,type V2P} from './real';
-export type View='raw'|'enh'|'cold'|'conv'|'ot'|'cool'|'cloud'|'real'|'e2';
+export type View='raw'|'enh'|'cold'|'conv'|'ot'|'cool'|'cloud'|'real'|'e2'|'fuse';
 export type Eng='v1'|'v2';
 export type Src='cmap'|'lum'|'vis';
 export interface Mask{row:Float32Array;col:Float32Array}
-export interface DecodeIn{w:number;h:number;cur:Uint8ClampedArray;prev:Uint8ClampedArray|null;view:View;thr:number;native:boolean;rgb:Uint8Array;btv:Float32Array;lum?:Float32Array|null;src?:Src;mask?:Mask|null;smooth?:number;scale?:number;ppd?:number;eng?:Eng;v2?:V2P;hi?:number|null;ox?:number;oy?:number}
+export interface DecodeIn{w:number;h:number;cur:Uint8ClampedArray;prev:Uint8ClampedArray|null;view:View;thr:number;native:boolean;rgb:Uint8Array;btv:Float32Array;lum?:Float32Array|null;src?:Src;mask?:Mask|null;smooth?:number;scale?:number;ppd?:number;eng?:Eng;v2?:V2P;hi?:number|null;ox?:number;oy?:number;cur2?:Uint8ClampedArray|null;fuse?:{top:number}|null}
 export interface Stats{valid:number;unmatched:number;min:number|null;flag:number}
 export interface DecodeOut{out:Uint8ClampedArray;ow:number;oh:number;bt:Float32Array;stats:Stats}
 export interface CalibIn{w:number;h:number;src:Uint8ClampedArray;ref:Uint8ClampedArray;rgb:Uint8Array;btv:Float32Array;mask:Mask}
@@ -191,7 +191,7 @@ const g=vis?Math.round(205+50*Math.min(1,v/255)):Math.round(170+80*Math.max(0,Ma
 put(i,[g,Math.min(255,g+3),Math.min(255,g+8)],Math.round(245*a))}
 return{out,flag,ow,oh}}
 return{out,flag,ow,oh}}
-function applyMask(bt:Float32Array,w:number,h:number,m:Mask){
+export function applyMask(bt:Float32Array,w:number,h:number,m:Mask){
 for(let y=0;y<h;y++){const ry=m.row[y];for(let x=0;x<w;x++)if(ry*m.col[x]<=LIMB)bt[y*w+x]=NaN}}
 export function run(i:DecodeIn):DecodeOut{
 if(i.eng==='v2')return runV2(i);

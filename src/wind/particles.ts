@@ -1,6 +1,6 @@
 import type {Map as GLMap} from 'maplibre-gl';
 import {RAMP} from '../config';
-import {sampleInto,rampColor,type Field} from '../lib/wind';
+import {sampleInto,confAt,rampColor,type Field} from '../lib/wind';
 export type Quality='low'|'medium'|'high';
 const Q={low:{div:1400,cap:1800,fps:30,dpr:1},medium:{div:800,cap:4500,fps:45,dpr:1.5},high:{div:450,cap:9000,fps:60,dpr:2}};
 const NB=8,VMAX=25,RAD=Math.PI/180;
@@ -9,13 +9,14 @@ private ctx:CanvasRenderingContext2D;private field:Field|null=null;private q:Qua
 private lon=new Float32Array(0);private lat=new Float32Array(0);private px=new Float32Array(0);private py=new Float32Array(0);
 private age=new Uint16Array(0);private life=new Uint16Array(0);
 private w=0;private h=0;private moving=false;private running=false;private raf=0;private last=0;
-private out=new Float32Array(2);private cols:string[];private seg:Float32Array[]=[];private cnt=new Int32Array(NB);
+private out=new Float32Array(2);private cols:string[];private seg:Float32Array[]=[];private cnt=new Int32Array(NB*2);private scale=1;
 constructor(private map:GLMap,private canvas:HTMLCanvasElement){
 this.ctx=canvas.getContext('2d') as CanvasRenderingContext2D;
 this.cols=Array.from({length:NB},(_,i)=>rampColor((i+0.5)*VMAX/NB,RAMP));
 map.on('movestart',()=>{this.moving=true});map.on('moveend',()=>{this.moving=false});
 map.on('resize',()=>this.resize());this.resize()}
 setField(f:Field|null){this.field=f}
+setScale(k:number){this.scale=k>0?k:1}
 setRamp(r:[number,string][]){this.cols=Array.from({length:NB},(_,i)=>rampColor((i+0.5)*VMAX/NB,r))}
 setQuality(q:Quality){this.q=q;this.resize()}
 setOpacity(o:number){this.canvas.style.opacity=String(o)}
@@ -26,7 +27,7 @@ this.ctx.setTransform(c.dpr,0,0,c.dpr,0,0);
 const n=Math.min(c.cap,Math.max(300,Math.floor(w*h/c.div)));
 this.lon=new Float32Array(n);this.lat=new Float32Array(n);this.px=new Float32Array(n);this.py=new Float32Array(n);
 this.age=new Uint16Array(n).fill(65535);this.life=new Uint16Array(n);
-this.seg=Array.from({length:NB},()=>new Float32Array(n*4));
+this.seg=Array.from({length:NB*2},()=>new Float32Array(n*4));
 for(let i=0;i<n;i++){this.seed(i);this.age[i]=Math.floor(Math.random()*this.life[i])}}
 get count(){return this.lon.length}
 private seed(i:number){
@@ -52,10 +53,10 @@ for(let i=0;i<n;i++){
 if(this.age[i]>=this.life[i]){this.seed(i);continue}
 this.age[i]++;
 if(!sampleInto(f,this.lon[i],this.lat[i],o)){this.age[i]=this.life[i];continue}
-const sp=Math.hypot(o[0],o[1]);
-this.lon[i]+=o[0]*k*degPx;this.lat[i]+=o[1]*k*degPx*Math.cos(this.lat[i]*RAD);
-const p=this.map.project([this.lon[i],this.lat[i]]),b=Math.min(NB-1,Math.floor(sp/(VMAX/NB))),s=this.seg[b],c=this.cnt[b]*4;
+const sc=this.scale,sp=Math.hypot(o[0],o[1])/sc;
+this.lon[i]+=o[0]/sc*k*degPx;this.lat[i]+=o[1]/sc*k*degPx*Math.cos(this.lat[i]*RAD);
+const p=this.map.project([this.lon[i],this.lat[i]]),b=Math.min(NB-1,Math.floor(sp/(VMAX/NB)))+(f.c&&confAt(f,this.lon[i],this.lat[i])<0.35?NB:0),s=this.seg[b],c=this.cnt[b]*4;
 s[c]=this.px[i];s[c+1]=this.py[i];s[c+2]=p.x;s[c+3]=p.y;this.cnt[b]++;
 this.px[i]=p.x;this.py[i]=p.y}
 ctx.lineWidth=1.3;ctx.lineCap='round';
-for(let b=0;b<NB;b++){const s=this.seg[b],c=this.cnt[b]*4;if(!c)continue;ctx.strokeStyle=this.cols[b];ctx.beginPath();for(let j=0;j<c;j+=4){ctx.moveTo(s[j],s[j+1]);ctx.lineTo(s[j+2],s[j+3])}ctx.stroke()}}}
+for(let b=0;b<NB*2;b++){const s=this.seg[b],c=this.cnt[b]*4;if(!c)continue;ctx.globalAlpha=b<NB?1:0.4;ctx.strokeStyle=this.cols[b%NB];ctx.beginPath();for(let j=0;j<c;j+=4){ctx.moveTo(s[j],s[j+1]);ctx.lineTo(s[j+2],s[j+3])}ctx.stroke()}ctx.globalAlpha=1}}

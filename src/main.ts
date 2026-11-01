@@ -26,6 +26,8 @@ import {bindPick} from './ui/charts';
 import {drawDiff,nearestIdx,speedDiff,diffLegend} from './cmp/layer';
 import {FieldController,FDEFS} from './fields/controller';
 import {neutralRamp} from './fields/defs';
+import {WindDecoder} from './wind/decoder';
+import {BANDS,type BandId} from './wind/amv';
 import {chips} from './cmp/ui';
 
 const $=<T extends HTMLElement=HTMLElement>(id:string)=>document.getElementById(id) as T;
@@ -39,6 +41,7 @@ const modelInfo=()=>MODELS.find(m=>m.id===st.model) as typeof MODELS[number];
 
 
 const fld=new FieldController({change:()=>{renderLayers();buildLegend();syncRamp();applyWind()},name:id=>(MODELS.find(m=>m.id===id)?.name??id),status:(m,k,r)=>setStatus(m,k,r),dark:()=>isDark(st.base),tz:()=>st.tz});
+const wd={on:false,band:'low' as BandId,dec:new WindDecoder(),tm:0};
 let map:maplibregl.Map|null=null,wind:WindLayer|null=null,wind2:WindLayer|null=null,gridB:GridSet|null=null,marker:maplibregl.Marker|null=null,sc:SatController|null=null,satSigV='';
 const satOn=()=>!!(sc&&sc.ready);
 const cur=()=>satOn()&&sc?sc.idx:st.idx;
@@ -55,7 +58,10 @@ if(msg&&retry){const b=document.createElement('button');b.type='button';b.classN
 
 function hasGL(){try{const c=document.createElement('canvas');return !!(c.getContext('webgl2')||c.getContext('webgl'))}catch{return false}}
 function field():Field|null{const g=st.grid;return g?{g:g.g,u:g.u[st.idx],v:g.v[st.idx]}:null}
-function applyWind(){if(!wind)return;const on=st.windOn||st.cmpMode==='split';wind.setField(on?field():null);if(on&&st.grid)wind.start();else wind.stop();$('legend').hidden=!(fld.active||(on&&st.grid));applyCompare();updateRail()}
+function wdField():Field|null{const r=wd.dec.last;if(!wd.on||!r)return null;const b=r.a.bands.find(x=>x.id===wd.band);if(!b)return null;return{g:{lon0:r.a.lon0,lat0:r.a.lat0,d:r.a.d,nx:r.a.nx,ny:r.a.ny},u:b.u,v:b.v,c:b.conf}}
+const bandK=()=>BANDS.find(b=>b.id===wd.band)?.k??1;
+function windField():Field|null{return wdField()??field()}
+function applyWind(){if(!wind)return;const on=st.windOn||st.cmpMode==='split',wf=on?wdField():null;wind.setScale(wf?bandK():1);wind.setField(on?windField():null);if(on&&st.grid)wind.start();else wind.stop();$('legend').hidden=!(fld.active||(on&&st.grid));applyCompare();updateRail()}
 const curT=()=>st.grid?st.grid.times[st.idx]:Math.floor(Date.now()/3600000)*3600;
 const nowIdx=(g:GridSet)=>{const n=Date.now()/1000;let k=0;for(let i=0;i<g.times.length;i++)if(g.times[i]<=n)k=i;return k};
 
@@ -93,8 +99,8 @@ const windRamp=()=>fld.active?neutralRamp(isDark(st.base)):rampFor(st.base);
 function syncRamp(){const r=windRamp();wind?.setRamp(r);wind2?.setRamp(r)}
 function buildLegend(){
 if(fld.active){$('legend').innerHTML=fld.legend();return}
-const r=rampFor(st.base),stops=r.map(([v,c])=>`${c} ${(v/25*100).toFixed(0)}%`).join(',');
-$('legend').innerHTML=`<div class="lg-t">10 m wind speed, m/s</div><div class="lg-bar" style="background:linear-gradient(to right,${stops})"></div><div class="lg-ticks"><span>0</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25+</span></div>`}
+const r=rampFor(st.base),stops=r.map(([v,c])=>`${c} ${(v/25*100).toFixed(0)}%`).join(','),d=wdField()&&st.windOn,k=d?bandK():1,tk=[0,5,10,15,20,25].map(x=>Math.round(x*k));
+$('legend').innerHTML=`<div class="lg-t">${d?`Derived wind, ${BANDS.find(b=>b.id===wd.band)?.name}, m/s`:'10 m wind speed, m/s'}</div><div class="lg-bar" style="background:linear-gradient(to right,${stops})"></div><div class="lg-ticks">${tk.map((x,i)=>`<span>${x}${i===5?'+':''}</span>`).join('')}</div>${d?'<div class="note">Faint strokes: little satellite support, mostly model wind.</div>':''}`}
 
 const frameTimes=():number[]=>satOn()&&sc?sc.frames:st.grid?st.grid.times:[];
 const tzOff=()=>st.tz==='UTC'?0:-new Date().getTimezoneOffset()*60;
@@ -119,7 +125,7 @@ moveMark()}
 
 function windIdxFor(t:number){const g=st.grid;if(!g)return 0;let k=0,b=Infinity;for(let i=0;i<g.times.length;i++){const d=Math.abs(g.times[i]-t);if(d<b){b=d;k=i}}return k}
 function configSlider(){renderTicks();const s=$<HTMLInputElement>('slider');if(satOn()&&sc){s.max=String(sc.frames.length-1);s.value=String(sc.idx);s.disabled=false}else if(st.grid){s.max=String(st.grid.times.length-1);s.value=String(st.idx);s.disabled=false}else s.disabled=true;moveMark()}
-function setFrame(i:number){if(!sc)return;sc.setIdx(i);$<HTMLInputElement>('slider').value=String(sc.idx);if(st.grid&&sc.time!=null)setWindIdx(windIdxFor(sc.time));else updateTime()}
+function setFrame(i:number){if(!sc)return;sc.setIdx(i);wdSoon();$<HTMLInputElement>('slider').value=String(sc.idx);if(st.grid&&sc.time!=null)setWindIdx(windIdxFor(sc.time));else updateTime()}
 function setIdx(i:number){if(satOn())setFrame(i);else setWindIdx(i)}
 function satChanged(){
 configSlider();
@@ -217,12 +223,31 @@ $('p-src').innerHTML=`<h2>Data sources</h2>`+SOURCES.map(s=>`<article class="src
 function renderTc(){if($('p-tc').hidden)return;$('p-tc').innerHTML=tcPanel(tc,st.tz,st.pin)}
 function tcChanged(){const g=tcSig(tc);if(g!==tcSigV){tcSigV=g;renderLayers()}if(!$('p-tc').hidden)renderTc();if(!$('p-src').hidden)renderSources()}
 function openTc(){showCard('tc')}
-function setModel(id:string){st.model=id;store.set('asiawx.model',id);fixB();fld.setModel(id);stop();void loadWind();if(st.pin)void loadLocation();if(st.cmpMode!=='off'){gridB=null;void loadB()}renderLayers()}
+function setModel(id:string){st.model=id;if(wd.on)setTimeout(()=>void runWd(),0);store.set('asiawx.model',id);fixB();fld.setModel(id);stop();void loadWind();if(st.pin)void loadLocation();if(st.cmpMode!=='off'){gridB=null;void loadB()}renderLayers()}
 function setBase(v:string){st.base=v;$('app').classList.toggle('lt',!isDark(v));store.set('asiawx.base2',v);map?.setStyle(styleFor(v));syncRamp();buildLegend();renderLayers()}
 function renderModelSeg(){
 $('modelseg').innerHTML=MODELS.map(x=>`<label title="${esc(x.org)}, ${esc(x.res)}"><input type="radio" name="l-model" value="${x.id}" ${x.id===st.model?'checked':''}><span>${esc(x.name)}</span></label>`).join('')}
 function windCard(){
-return card({id:'wind',icon:'wind',label:'Wind particles',sub:'10 m wind, animated',sw:{id:'l-wind',on:st.windOn},body:`<div class="ctl"><label for="l-op">Opacity</label><input type="range" id="l-op" min="0.2" max="1" step="0.05" value="${st.opacity}"></div><div class="ctl"><label for="l-q">Particle density</label><select id="l-q"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div><p class="note">Density defaults to Low on touch and low-core devices. Animation starts off when reduced motion is requested.</p>`})}
+return card({id:'wind',icon:'wind',label:'Wind particles',sub:'10 m wind, animated',sw:{id:'l-wind',on:st.windOn},body:`<div class="ctl"><label for="l-op">Opacity</label><input type="range" id="l-op" min="0.2" max="1" step="0.05" value="${st.opacity}"></div><div class="ctl"><label for="l-q">Particle density</label><select id="l-q"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></div><p class="note">Density defaults to Low on touch and low-core devices. Animation starts off when reduced motion is requested.</p>${wdBody()}`})}
+function wdStat():string{
+const d=wd.dec;
+if(d.busy)return`${d.phase||'Working'}`;
+if(d.err)return`Wind Decoder: ${d.err}`;
+const r=d.last;
+if(!r)return'Not decoded yet.';
+const b=r.a.bands.find(x=>x.id===wd.band),s=r.a.stats;
+return`Valid ${fmtTime(r.t,st.tz)}, from cloud motion over ${Math.round(r.dt/60)} min. ${s.accepted} of ${s.tracked} tracked vectors passed the model check, ${b?.n??0} in this level. Typical departure from ${modelInfo().name}: ${s.medVD.toFixed(1)} m/s. Decoded in ${(r.ms.total/1000).toFixed(1)} s (frames ${(r.ms.frames/1000).toFixed(1)}, tracking ${(r.ms.track/1000).toFixed(1)}, blend ${(r.ms.analyse/1000).toFixed(1)}) on ${r.workers} workers.`}
+function wdBody():string{
+return`<hr class="sp"><div class="ctl"><label class="chk"><input type="checkbox" id="wd-on" ${wd.on?'checked':''}> Wind Decoder (experimental)</label></div>${wd.on?`<div class="ctl"><label for="wd-band">Level</label><select id="wd-band">${BANDS.map(b=>`<option value="${b.id}" ${b.id===wd.band?'selected':''}>${b.name}</option>`).join('')}</select></div><div class="ctl"><span>Satellite wind</span><button type="button" class="btn sm" id="wd-run">Decode now</button></div>`:''}<p class="note" id="wd-stat">${wd.on?esc(wdStat()):'Derives winds from the motion of Fused IR cloud features, checked and blended with the selected model. No AI or trained model is involved.'}</p>${wd.on?`<details><summary>Method</summary><p>Fused IR brightness temperature (GIBS colormap plus calibrated JMA) is built for two frames about 30 minutes apart. Cloud features are tracked by normalised cross-correlation block matching, coarse to fine with sub-pixel refinement, which gives a displacement and so a wind vector. Each vector is given a height by matching its brightness temperature to the model temperature profile, compared with the model wind at that height, and rejected if it departs too far. The accepted vectors correct the model wind with a distance-weighted (Cressman) analysis; where there is little satellite support the result stays the model. Cloud motion is only available where there is trackable cloud, and thin cirrus is placed too low, so treat the result as experimental.</p></details>`:''}`}
+let wdBusy=0;
+async function runWd(){
+if(!wd.on||!sc)return;
+const my=++wdBusy,want=sc.on&&sc.time!=null?sc.time:null,tick=()=>{const e=document.getElementById('wd-stat');if(e)e.textContent=wdStat()};
+const r=await wd.dec.run(sc,st.model,want,tick);
+if(my!==wdBusy)return;
+if(r){applyWind();buildLegend()}
+renderLayers()}
+function wdSoon(){if(!wd.on||st.playing)return;clearTimeout(wd.tm);wd.tm=window.setTimeout(()=>void runWd(),900)}
 function updateRail(){
 const on:Record<string,boolean>={fc:!!st.pin,wx:st.windOn||fld.active||st.cmpMode!=='off',sat:satOn(),dec:satOn(),tc:tc.on,map:false,src:false};
 for(const b of document.querySelectorAll<HTMLElement>('#rail .rl')){const v=b.dataset.v as string;b.toggleAttribute('data-on',!!on[v])}}
@@ -294,7 +319,9 @@ if(t.name==='l-fld'){const k=t.value==='off'?null:t.value;store.set('asiawx.fld'
 if(t.id==='l-fc'){fld.setContours(t.checked);return}
 if(t.name==='l-cm'){setCmpMode(t.value as 'off'|'diff'|'split');return}
 if(t.id==='l-mb'){st.modelB=t.value;gridB=null;void loadB();renderLayers();return}
-if(t.id==='l-wind'){st.windOn=t.checked;applyWind();return}
+if(t.id==='l-wind'){st.windOn=t.checked;applyWind();buildLegend();return}
+if(t.id==='wd-on'){wd.on=t.checked;if(wd.on)void runWd();else{applyWind();buildLegend();renderLayers()}return}
+if(t.id==='wd-band'){wd.band=t.value as BandId;applyWind();buildLegend();renderLayers();return}
 if(t.id==='l-q'){st.quality=t.value as Quality;wind?.setQuality(st.quality);wind2?.setQuality(st.quality);return}
 if(t.id==='l-tc'){store.set('asiawx.tc',t.checked?'on':'off');void tc.enable(t.checked);return}
 const ok:Record<string,keyof typeof tc.opts>={'l-tcp':'prob','l-tcw':'warn','l-tcpast':'past','l-tcr':'radii','l-tcd':'danger'};
@@ -308,15 +335,16 @@ if(t.id==='l-op'){st.opacity=+t.value;wind?.setOpacity(st.opacity);wind2?.setOpa
 $('panel').addEventListener('click',e=>{
 const el=e.target as HTMLElement;
 const b=el.closest('button') as HTMLElement|null;if(!b)return;
+if(b.id==='wd-run'){void runWd();return}
 const a=b.dataset.act,i=Number(b.dataset.i),bm=bookmarks();
 if(a==='fld-retry')void fld.load();
 else if(a==='sat-on'&&sc){stop();void sc.enable(true).then(()=>satChanged())}
 else if(a==='go'&&bm[i]){map?.flyTo({center:[bm[i].lon,bm[i].lat],zoom:6});void selectPoint(bm[i])}
 else if(a==='del'){bm.splice(i,1);store.set('asiawx.bm',JSON.stringify(bm));renderLayers();if(st.pin)renderLocation(st.point?'ok':'loading')}
 else if(sc){if(b.id==='l-save'){if(sc.saving)sc.stopSaving();else void sc.saveLoop()}else if(b.id==='l-clear')void sc.clearSaved()}});
-$('p-dec').addEventListener('change',e=>{const t=e.target as HTMLSelectElement;if(!sc)return;if(t.id==='sd-view')sc.setView(t.value as View);else if(t.id==='sd-thr')sc.setThr(+t.value);else if(t.id==='sd-sm')sc.setSmooth(+t.value);else if(t.id==='sd-cov')sc.setCov(t.value as 'fast'|'fine');else if(t.id==='sd-eng'){stop();sc.setEngine(t.value as Eng)}else if(t.id==='sd-v2-bg')sc.setV2('bg','',t.value);else if(t.id.startsWith('sd-v2-')&&t.id.endsWith('-pal'))sc.setV2(t.id.slice(6,-4) as 'real'|'enh','pal',t.value)});
+$('p-dec').addEventListener('change',e=>{const t=e.target as HTMLSelectElement;if(!sc)return;if(t.id==='sd-view')sc.setView(t.value as View);else if(t.id==='sd-thr')sc.setThr(+t.value);else if(t.id==='sd-sm')sc.setSmooth(+t.value);else if(t.id==='sd-cov')sc.setCov(t.value as 'fast'|'fine');else if(t.id==='sd-eng'){stop();sc.setEngine(t.value as Eng)}else if(t.id==='sd-fz'){stop();sc.setFuseTop(+t.value)}else if(t.id==='sd-v2-bg')sc.setV2('bg','',t.value);else if(t.id.startsWith('sd-v2-')&&t.id.endsWith('-pal'))sc.setV2(t.id.slice(6,-4) as 'real'|'enh','pal',t.value)});
 $('p-dec').addEventListener('click',e=>{const t=(e.target as HTMLElement).closest('button');if(t?.id==='sd-recal')void sc?.recalibrate()});
-$('p-dec').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='sd-mix')sc?.setMix(+t.value);else if(sc&&/^sd-v2-(real|enh)-/.test(t.id)){const [,g,k]=t.id.match(/^sd-v2-(real|enh)-(.+)$/) as string[],v=+t.value;sc.setV2(g as 'real'|'enh',k,v);const o=document.getElementById(`sd-v2v-${g}-${k}`);if(o)o.textContent=k==='light'?`${Math.round(v)} deg`:k==='soft'?String(v):v.toFixed(2)}});
+$('p-dec').addEventListener('input',e=>{const t=e.target as HTMLInputElement;if(t.id==='sd-mix')sc?.setMix(+t.value);else if(t.id==='sd-fz'){const o=document.getElementById('sd-fzv');if(o)o.textContent=`${Math.round(+t.value*100)}%`}else if(sc&&/^sd-v2-(real|enh)-/.test(t.id)){const [,g,k]=t.id.match(/^sd-v2-(real|enh)-(.+)$/) as string[],v=+t.value;sc.setV2(g as 'real'|'enh',k,v);const o=document.getElementById(`sd-v2v-${g}-${k}`);if(o)o.textContent=k==='light'?`${Math.round(v)} deg`:k==='soft'?String(v):v.toFixed(2)}});
 $('p-tc').addEventListener('click',e=>{const b=(e.target as HTMLElement).closest('[data-act]') as HTMLElement|null;if(!b)return;const a=b.dataset.act,id=b.dataset.id??'';
 if(a==='sel'){tc.select(id);tc.fly(id)}else if(a==='fly'||a==='flyg'){tc.fly(id);if(mobile())closeCard()}else if(a==='refresh')void tc.load()});
 $('full').addEventListener('click',()=>{if(!document.fullscreenEnabled){setStatus('Fullscreen is not supported in this browser.','warn');return}if(document.fullscreenElement)void document.exitFullscreen();else void document.documentElement.requestFullscreen().catch(()=>setStatus('Fullscreen was blocked.','warn'))});
