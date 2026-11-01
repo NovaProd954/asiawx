@@ -2,6 +2,10 @@ import {btLut} from './pal';
 import {lumOf} from './calib';
 import {diskVis} from './geo';
 import {run,decodeBT,smooth,clearRef,applyMask,type DecodeIn,type DecodeOut} from './decode';
+export function fuseBT(a:Float32Array,b:Float32Array):Float32Array{
+const n=a.length,o=new Float32Array(n);
+for(let i=0;i<n;i++){const p=a[i],q=b[i];o[i]=p===p?(q===q?(p+q)/2:p):q}
+return o}
 export const FUSE_TOP=0.5;
 export function cloudAlpha(bt:Float32Array,w:number,h:number,ppd:number,lv:number):Float32Array{
 const n=w*h,a=new Float32Array(n);
@@ -32,12 +36,11 @@ export function runFuse(i:DecodeIn):DecodeOut{
 const {w,h}=i,n=w*h,o={unmatched:0},lv=i.smooth??1,ppd=i.ppd??11.4,top=Math.max(0,Math.min(1,i.fuse?.top??FUSE_TOP));
 const bg=i.rgb.length?decodeBT(i.cur,btLut(i.rgb,i.btv),o):new Float32Array(n).fill(NaN);
 const L=i.lum,j=i.cur2??null,bj=j&&L?decodeBT(j,(r,g,b)=>L[lumOf(r,g,b)],{unmatched:0}):new Float32Array(n).fill(NaN);
-if(i.mask){applyMask(bg,w,h,i.mask);applyMask(bj,w,h,i.mask)}
-const m=i.mask,vis=m?(k:number)=>diskVis(m.row[(k/w)|0]*m.col[k%w]):null;
-const ag=cloudAlpha(bg,w,h,ppd,lv),aj=j&&L?cloudAlpha(bj,w,h,ppd,lv):null;
-const {out,flag}=composite(i.cur,ag,j,aj,top,vis,n);
-const bt=new Float32Array(n);
+const bt=fuseBT(bg,bj);
+if(i.mask)applyMask(bt,w,h,i.mask);
+const m=i.mask,vis=m?(k:number)=>diskVis(m.row[(k/w)|0]*m.col[k%w]):null,a=cloudAlpha(bt,w,h,ppd,lv),ag=new Float32Array(n),aj=j&&L?new Float32Array(n):null;
 let valid=0,min=Infinity;
-for(let k=0;k<n;k++){const a=bg[k],b=bj[k],v=a===a?a:b;bt[k]=v;if(v===v){valid++;if(v<min)min=v}}
+for(let k=0;k<n;k++){const v=bt[k];if(v!==v)continue;valid++;if(v<min)min=v;if(bg[k]===bg[k])ag[k]=a[k];if(aj&&bj[k]===bj[k])aj[k]=a[k]}
+const {out,flag}=composite(i.cur,ag,j,aj,top,vis,n);
 return{out,ow:w,oh:h,bt,stats:{valid,unmatched:o.unmatched,min:valid?min:null,flag}}}
 export const runAny=(i:DecodeIn):DecodeOut=>i.fuse?runFuse(i):run(i);

@@ -35,16 +35,18 @@ job.cur=a;job.cur2=b;job.prev=c}
 self.onmessage=async(e:MessageEvent<{id:number;kind:'decode'|'calib'|'ldec'|'hist'|'wbt'|'amv'|'wan';job:any;tiles?:Tiles}>)=>{
 const {id,kind,job,tiles}=e.data;
 try{
+const tA=performance.now();
 if(tiles)await fill(job as DecodeIn,tiles);
+const tf=performance.now()-tA;
 if(kind==='wbt'){const r=fusedBT(job as BTJob);post({id,ok:true,res:r},[r.bt.buffer]);return}
 if(kind==='amv'){const j=job as {b0:Float32Array;b1:Float32Array;w:number;h:number;o:TrackOpt};post({id,ok:true,res:track(j.b0,j.b1,j.w,j.h,j.o)});return}
 if(kind==='wan'){const j=job as {trk:Trk[];win:Win;dt:number;L:Levels};const vs=vectors(j.trk,j.win,j.dt,j.L),a=analyse(vs,j.L);post({id,ok:true,res:a},a.bands.flatMap(b=>[b.u.buffer,b.v.buffer,b.conf.buffer]));return}
 if(kind==='calib'){post({id,ok:true,res:calibrate(job as CalibIn)});return}
 if(kind==='hist'){post({id,ok:true,res:histV2(job as DecodeIn)});return}
-const r=run(job as DecodeIn);
+const tB=performance.now(),r=run(job as DecodeIn),td=performance.now()-tB;
 if(kind==='ldec'){
-const blob=await blobOf(r.out,r.ow,r.oh);
-if(blob){post({id,ok:true,res:{blob,ow:r.ow,oh:r.oh,stats:r.stats}});return}
-post({id,ok:true,res:{out:r.out,ow:r.ow,oh:r.oh,stats:r.stats}},[r.out.buffer]);return}
+const tC=performance.now(),blob=await blobOf(r.out,r.ow,r.oh),tm={tiles:tf,decode:td,enc:performance.now()-tC};
+if(blob){post({id,ok:true,res:{blob,ow:r.ow,oh:r.oh,stats:r.stats,tm}});return}
+post({id,ok:true,res:{out:r.out,ow:r.ow,oh:r.oh,stats:r.stats,tm}},[r.out.buffer]);return}
 post({id,ok:true,res:r},[r.out.buffer,r.bt.buffer])
 }catch(err){post({id,ok:false,error:err instanceof Error?err.message:String(err)})}};

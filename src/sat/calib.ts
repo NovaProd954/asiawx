@@ -24,7 +24,7 @@ const fail=(why:string,corr=NaN):Fit=>({ok:false,lut:new Float32Array(256),rms:N
 if(n<MIN_N)return fail(`only ${n} overlapping pixels with data`);
 const vl=sll/n-(sl/n)**2,vb=sbb/n-(sb/n)**2,corr=vl>0&&vb>0?(slb/n-sl/n*sb/n)/Math.sqrt(vl*vb):0;
 if(chroma>8)return fail('the source is not a grey-scale image',corr);
-if(Math.abs(corr)<0.9)return fail(`brightness and GIBS temperature do not line up (correlation ${corr.toFixed(2)}); the tile geometry or time may differ`,corr);
+if(Math.abs(corr)<0.3)return fail(`brightness and GIBS temperature do not line up (correlation ${corr.toFixed(2)}); the tile geometry or time may differ`,corr);
 const sg=corr<0?-1:1,idx:number[]=[],ym:number[]=[],wt:number[]=[];
 for(let l=0;l<256;l++)if(C[l]>=MIN_BIN){idx.push(l);ym.push(sg*S[l]/C[l]);wt.push(C[l])}
 if(idx.length<8)return fail('too few brightness levels in the overlap',corr);
@@ -37,5 +37,7 @@ const f=(l-idx[k-1])/(idx[k]-idx[k-1]);lut[l]=iso[k-1]+(iso[k]-iso[k-1])*f}
 let sse=0;
 for(let l=0;l<256;l++)if(C[l]>0)sse+=Q[l]-2*lut[l]*S[l]+C[l]*lut[l]*lut[l];
 const rms=Math.sqrt(Math.max(0,sse)/n);
+const sst=Math.max(1e-9,vb*n),fitR=Math.sqrt(Math.max(0,1-sse/sst));
+if(fitR<0.93)return{...fail(`brightness and GIBS temperature do not line up (monotone fit ${fitR.toFixed(2)}, correlation ${corr.toFixed(2)}); the tile geometry or time may differ`,corr),rms};
 if(rms>6)return{...fail(`residual of ${rms.toFixed(1)} K is too large to trust`,corr),rms};
 return{ok:true,lut,rms,n,corr,chroma,why:''}}

@@ -463,6 +463,8 @@ private get hasDec(){return this.lwide.length>0||this.ldet.length>0}
 private getPool(){
 if(!this.pool){const hc=typeof navigator!=='undefined'?navigator.hardwareConcurrency||4:4;this.pool=new Pool(Math.max(1,Math.min(this.mobile?3:4,hc-1)))}
 return this.pool}
+private tm={n:0,tiles:0,decode:0,enc:0};
+private tmText(s:number){const m=this.tm,a=(x:number)=>(x/m.n/1000).toFixed(1);return m.n?` in ${(s/1000).toFixed(1)} s; average per frame: tiles ${a(m.tiles)} s, decode ${a(m.decode)} s, encode ${a(m.enc)} s`:` in ${(s/1000).toFixed(1)} s`}
 private fastTiles=typeof OffscreenCanvas!=='undefined'&&typeof createImageBitmap!=='undefined';
 private noFast(e:unknown){if(/Offscreen|2d context|worker failed|no workers/i.test(e instanceof Error?e.message:String(e)))this.fastTiles=false}
 private async frameBlob(L:SatLayer,t:number,r:TileRng,wide:boolean,hi:number|null):Promise<Blob>{
@@ -470,8 +472,9 @@ const p=this.getPool();
 if(p.size&&this.fastTiles){
 try{
 const {job,tiles}=await this.job(L,t,r,wide,hi,true);
-type R={blob?:Blob;out?:Uint8ClampedArray;ow:number;oh:number};
+type R={blob?:Blob;out?:Uint8ClampedArray;ow:number;oh:number;tm?:{tiles:number;decode:number;enc:number}};
 const o=await p.call<R>('ldec',job,[],tiles);
+if(o.tm){this.tm.n++;this.tm.tiles+=o.tm.tiles;this.tm.decode+=o.tm.decode;this.tm.enc+=o.tm.enc}
 return o.blob??await this.encodeBlob(o.out as Uint8ClampedArray,o.ow,o.oh)
 }catch(e){this.noFast(e)}}
 const {job}=await this.job(L,t,r,wide,hi);
@@ -542,7 +545,8 @@ if(this.saving)return false;
 this.saving=true;this.byPlay=byPlay;this.errs=0;
 if((this.mode==='cmap'||this.mode==='fuse')&&(this.cmapState==='idle'||this.cmapState==='loading')){this.cstat='Loading the GIBS colormap';this.h.change();await this.ensureCmap();if(!this.saving||!this.on){this.saving=false;return false}}
 if(this.mode==='fuse'&&this.fparts&&!this.lumFit&&!this.cal.has(this.fparts.j.key)){this.cstat='Calibrating JMA against GIBS';this.h.change();await this.calibrate(this.fparts.j);if(!this.saving||!this.on){this.saving=false;return false}}
-const my=++this.stok,N=this.frames.length,times=this.frames.slice(),view=this.view,dec=view!=='raw'&&this.can&&!!this.mode,fz=this.mode==='fuse',needRaw=fz?false:!dec||this.mix<1;
+const t0s=performance.now(),my=++this.stok,N=this.frames.length,times=this.frames.slice(),view=this.view,dec=view!=='raw'&&this.can&&!!this.mode,fz=this.mode==='fuse',needRaw=fz?false:!dec||this.mix<1;
+this.tm={n:0,tiles:0,decode:0,enc:0};
 if(fz&&!dec){this.saving=false;this.cstat='Fused IR needs the GIBS colormap and the JMA calibration before a loop can be saved';this.h.change();return false}
 const zoom=m.getZoom(),bb=m.getBounds(),vb:Box={w:bb.getWest(),s:bb.getSouth(),e:bb.getEast(),n:bb.getNorth()};
 const sets:{r:TileRng;wide:boolean}[]=[];
@@ -602,7 +606,7 @@ this.lbox=ds?boxOf(ds.r):null;this.lz=ds?ds.r.z:0;this.lnear=view==='conv'||view
 this.loopMode=true;this.lcur=-1;this.want=-1;
 this.applyOpacity();
 await this.lres.get(this.idx)?.p;
-this.cstat=`Loop saved on this device, ${N} frames${dec?' (decoded)':''}${this.errs?', some tiles were not returned':''}`;
+this.cstat=`Loop saved on this device, ${N} frames${dec?' (decoded)':''}${this.errs?', some tiles were not returned':''}${this.tmText(performance.now()-t0s)}`;
 return true
 }catch(e){
 wipe();this.dropLoop(false);this.cstat=`Loop could not be saved: ${e instanceof Error?e.message:'unknown error'}`;return false

@@ -13,10 +13,7 @@ export interface Stats{tracked:number;accepted:number;rejected:number;rmsVD:numb
 export const mPerPx=(lat:number,z:number)=>2*Math.PI*RE*Math.cos(lat*Math.PI/180)/(256*2**z);
 export const xToLon=(x:number,z:number)=>x/2**z*360-180;
 export const yToLat=(y:number,z:number)=>Math.atan(Math.sinh(Math.PI*(1-2*y/2**z)))*180/Math.PI;
-export function fuseBT(a:Float32Array,b:Float32Array):Float32Array{
-const n=a.length,o=new Float32Array(n);
-for(let i=0;i<n;i++){const p=a[i],q=b[i];o[i]=p===p?(q===q?(p+q)/2:p):q}
-return o}
+export {fuseBT} from '../sat/fuse';
 export function down2(s:Float32Array,w:number,h:number):{d:Float32Array;w:number;h:number}{
 const W=w>>1,H=h>>1,d=new Float32Array(W*H);
 for(let y=0;y<H;y++)for(let x=0;x<W;x++){

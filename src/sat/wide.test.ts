@@ -47,6 +47,7 @@ const make=(f:(l:number)=>number,noise=0,n=64000)=>{const px=new Uint8ClampedArr
 it('recovers a decreasing curve',()=>{const {px,bt}=make(l=>40-l*0.5);const f=fitCurve(px,bt);expect(f.ok).toBe(true);expect(f.rms).toBeLessThan(0.5);expect(f.lut[0]).toBeCloseTo(40,0);expect(f.lut[200]).toBeCloseTo(-60,0)});
 it('is monotone even when noisy',()=>{const {px,bt}=make(l=>40-l*0.5,3);const f=fitCurve(px,bt);expect(f.ok).toBe(true);for(let l=1;l<256;l++)expect(f.lut[l]).toBeLessThanOrEqual(f.lut[l-1]+1e-6)});
 it('also accepts an increasing curve',()=>{const {px,bt}=make(l=>-90+l*0.45);const f=fitCurve(px,bt);expect(f.ok).toBe(true);expect(f.lut[255]).toBeGreaterThan(f.lut[0])});
+it('accepts a strongly non-linear monotone brightness scale (Pearson below 0.9)',()=>{const {px,bt}=make(l=>l<40?30:l<70?30-(l-40)*3:l<140?-60-(l-70)*0.05:-64+((l*13)%7)*0.2);const f=fitCurve(px,bt);expect(Math.abs(f.corr)).toBeLessThan(0.9);expect(f.ok).toBe(true);for(let l=1;l<256;l++)expect(f.lut[l]).toBeLessThanOrEqual(f.lut[l-1]+1e-6)});
 it('rejects a colour source',()=>{const {px,bt}=make(l=>40-l*0.5);for(let i=0;i<px.length;i+=4)px[i]=Math.min(255,px[i]+90);const f=fitCurve(px,bt);expect(f.ok).toBe(false);expect(f.why).toMatch(/grey/)});
 it('rejects an unrelated image',()=>{const {px,bt}=make(l=>((l*37)%256)/4-30);const f=fitCurve(px,bt);expect(f.ok).toBe(false);expect(f.why).toMatch(/correlation|line up/)});
 it('rejects too little overlap',()=>{const {px,bt}=make(l=>40-l*0.5,0,500);const f=fitCurve(px,bt);expect(f.ok).toBe(false);expect(f.why).toMatch(/overlapping/)});
