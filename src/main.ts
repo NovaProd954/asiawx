@@ -41,7 +41,7 @@ const modelInfo=()=>MODELS.find(m=>m.id===st.model) as typeof MODELS[number];
 
 
 const fld=new FieldController({change:()=>{renderLayers();buildLegend();syncRamp();applyWind()},name:id=>(MODELS.find(m=>m.id===id)?.name??id),status:(m,k,r)=>setStatus(m,k,r),dark:()=>isDark(st.base),tz:()=>st.tz});
-const wd={on:false,band:'low' as BandId,dec:new WindDecoder(),tm:0};
+const wd={on:false,vec:false,band:'low' as BandId,dec:new WindDecoder(),tm:0};
 let map:maplibregl.Map|null=null,wind:WindLayer|null=null,wind2:WindLayer|null=null,gridB:GridSet|null=null,marker:maplibregl.Marker|null=null,sc:SatController|null=null,satSigV='';
 const satOn=()=>!!(sc&&sc.ready);
 const cur=()=>satOn()&&sc?sc.idx:st.idx;
@@ -76,6 +76,7 @@ wind2=new WindLayer(map,$<HTMLCanvasElement>('wind2'));wind2.setQuality(st.quali
 let dq=0;map.on('move',()=>{if(st.cmpMode!=='diff'||dq)return;dq=requestAnimationFrame(()=>{dq=0;paintDiff()})});map.on('resize',()=>{paintDiff();placeSplit()});
 sc=new SatController(map,{change:satChanged,status:setStatus});tc.attach(map);fld.attach(map);fld.setOpacity(fld.opacity);renderLayers();
 map.on('load',()=>health.set('basemap',{ok:true,lastOk:Date.now(),err:null,ms:null}));
+map.on('style.load',()=>drawWdVec());
 map.on('error',e=>{if(String((e as unknown as {sourceId?:string}).sourceId??'').startsWith('sat-'))return;const p=health.get('basemap');health.set('basemap',{ok:false,lastOk:p?.lastOk??null,err:String(e.error?.message??'tile or style error'),ms:null})});
 map.on('click',e=>{if(tc.hit(e.point))return;void selectPoint({lat:e.lngLat.lat,lon:e.lngLat.lng,name:coordName(e.lngLat.lat,e.lngLat.lng)})});
 let pend=false;
@@ -235,10 +236,23 @@ if(d.busy)return`${d.phase||'Working'}`;
 if(d.err)return`Wind Decoder: ${d.err}`;
 const r=d.last;
 if(!r)return'Not decoded yet.';
-const b=r.a.bands.find(x=>x.id===wd.band),s=r.a.stats;
-return`Valid ${fmtTime(r.t,st.tz)}, from cloud motion over ${Math.round(r.dt/60)} min. ${s.accepted} of ${s.tracked} tracked vectors passed the model check, ${b?.n??0} in this level. Typical departure from ${modelInfo().name}: ${s.medVD.toFixed(1)} m/s. Decoded in ${(r.ms.total/1000).toFixed(1)} s (frames ${(r.ms.frames/1000).toFixed(1)}, tracking ${(r.ms.track/1000).toFixed(1)}, blend ${(r.ms.analyse/1000).toFixed(1)}) on ${r.workers} workers.`}
+const b=r.a.bands.find(x=>x.id===wd.band),s=r.a.stats,few=s.accepted<40;
+return[`Valid ${fmtTime(r.t,st.tz)}, from cloud motion over ${Math.round(r.dt/60)} min.`,`${s.accepted} of ${s.tracked} tracked cloud winds passed the check against ${modelInfo().name}, ${b?.n??0} at this level.`,few?'Few cloud features could be tracked, so this is mostly model wind.':`Typical difference from the model: ${s.medVD.toFixed(1)} m/s.`,r.lvModel!==r.model?`Pressure-level model data came from ${r.lvModel}.`:'',r.note?`${r.note}.`:'',`Decoded in ${(r.ms.total/1000).toFixed(1)} s (frames ${(r.ms.frames/1000).toFixed(1)}, tracking ${(r.ms.track/1000).toFixed(1)}, blend ${(r.ms.analyse/1000).toFixed(1)}).`].filter(Boolean).join(' ')}
+const bandOf=(p:number)=>BANDS.find(b=>p>=b.lo&&p<b.hi)?.id;
+function drawWdVec(){
+if(!map||!map.getStyle())return;
+const r=wd.dec.last,show=wd.on&&wd.vec&&!!r;
+if(!show){for(const id of ['wd-vec-l','wd-vec-p'])if(map.getLayer(id))map.removeLayer(id);if(map.getSource('wd-vec'))map.removeSource('wd-vec');return}
+const f:GeoJSON.Feature[]=[];
+for(const v of r!.a.vecs){if(bandOf(v.p)!==wd.band)continue;const k=0.08/Math.max(0.2,Math.cos(v.lat*Math.PI/180));
+f.push({type:'Feature',properties:{q:v.qi},geometry:{type:'LineString',coordinates:[[v.lon,v.lat],[v.lon+v.u*k,v.lat+v.v*0.08]]}},{type:'Feature',properties:{q:v.qi},geometry:{type:'Point',coordinates:[v.lon,v.lat]}})}
+const data={type:'FeatureCollection',features:f} as GeoJSON.FeatureCollection,s=map.getSource('wd-vec') as maplibregl.GeoJSONSource|undefined;
+if(s){s.setData(data);return}
+map.addSource('wd-vec',{type:'geojson',data});
+map.addLayer({id:'wd-vec-l',type:'line',source:'wd-vec',filter:['==',['geometry-type'],'LineString'],paint:{'line-color':'#ffffff','line-width':1.4,'line-opacity':['interpolate',['linear'],['get','q'],0.35,0.45,1,1]}});
+map.addLayer({id:'wd-vec-p',type:'circle',source:'wd-vec',filter:['==',['geometry-type'],'Point'],paint:{'circle-radius':2.4,'circle-color':'#ffd54a','circle-stroke-color':'#00000066','circle-stroke-width':0.6}})}
 function wdBody():string{
-return`<hr class="sp"><div class="ctl"><label class="chk"><input type="checkbox" id="wd-on" ${wd.on?'checked':''}> Wind Decoder (experimental)</label></div>${wd.on?`<div class="ctl"><label for="wd-band">Level</label><select id="wd-band">${BANDS.map(b=>`<option value="${b.id}" ${b.id===wd.band?'selected':''}>${b.name}</option>`).join('')}</select></div><div class="ctl"><span>Satellite wind</span><button type="button" class="btn sm" id="wd-run">Decode now</button></div>`:''}<p class="note" id="wd-stat">${wd.on?esc(wdStat()):'Derives winds from the motion of Fused IR cloud features, checked and blended with the selected model. No AI or trained model is involved.'}</p>${wd.on?`<details><summary>Method</summary><p>Fused IR brightness temperature (GIBS colormap plus calibrated JMA) is built for two frames about 30 minutes apart. Cloud features are tracked by normalised cross-correlation block matching, coarse to fine with sub-pixel refinement, which gives a displacement and so a wind vector. Each vector is given a height by matching its brightness temperature to the model temperature profile, compared with the model wind at that height, and rejected if it departs too far. The accepted vectors correct the model wind with a distance-weighted (Cressman) analysis; where there is little satellite support the result stays the model. Cloud motion is only available where there is trackable cloud, and thin cirrus is placed too low, so treat the result as experimental.</p></details>`:''}`}
+return`<hr class="sp"><div class="ctl"><label class="chk"><input type="checkbox" id="wd-on" ${wd.on?'checked':''}> Wind Decoder (experimental)</label></div>${wd.on?`<div class="ctl"><label for="wd-band">Level</label><select id="wd-band">${BANDS.map(b=>`<option value="${b.id}" ${b.id===wd.band?'selected':''}>${b.name}</option>`).join('')}</select></div><div class="ctl"><span>Satellite wind</span><button type="button" class="btn sm" id="wd-run">Decode now</button></div><div class="ctl"><label class="chk"><input type="checkbox" id="wd-vec" ${wd.vec?'checked':''}> Show tracked cloud winds</label></div>`:''}<p class="note" id="wd-stat">${wd.on?esc(wdStat()):'Derives winds from the motion of Fused IR cloud features, checked and blended with the selected model. No AI or trained model is involved.'}</p>${wd.on?`<details><summary>Method</summary><p>Fused IR brightness temperature (GIBS colormap plus calibrated JMA) is built for two frames about 30 minutes apart. Cloud features are tracked by normalised cross-correlation block matching, coarse to fine with sub-pixel refinement, which gives a displacement and so a wind vector. Each vector is given a height by matching its brightness temperature to the model temperature profile, compared with the model wind at that height, and rejected if it departs too far. The accepted vectors correct the model wind with a distance-weighted (Cressman) analysis; where there is little satellite support the result stays the model. Cloud motion is only available where there is trackable cloud, and thin cirrus is placed too low, so treat the result as experimental.</p></details>`:''}`}
 let wdBusy=0;
 async function runWd(){
 if(!wd.on||!sc)return;
@@ -246,7 +260,7 @@ const my=++wdBusy,want=sc.on&&sc.time!=null?sc.time:null,tick=()=>{const e=docum
 const r=await wd.dec.run(sc,st.model,want,tick);
 if(my!==wdBusy)return;
 if(r){applyWind();buildLegend()}
-renderLayers()}
+drawWdVec();renderLayers()}
 function wdSoon(){if(!wd.on||st.playing)return;clearTimeout(wd.tm);wd.tm=window.setTimeout(()=>void runWd(),900)}
 function updateRail(){
 const on:Record<string,boolean>={fc:!!st.pin,wx:st.windOn||fld.active||st.cmpMode!=='off',sat:satOn(),dec:satOn(),tc:tc.on,map:false,src:false};
@@ -320,8 +334,9 @@ if(t.id==='l-fc'){fld.setContours(t.checked);return}
 if(t.name==='l-cm'){setCmpMode(t.value as 'off'|'diff'|'split');return}
 if(t.id==='l-mb'){st.modelB=t.value;gridB=null;void loadB();renderLayers();return}
 if(t.id==='l-wind'){st.windOn=t.checked;applyWind();buildLegend();return}
-if(t.id==='wd-on'){wd.on=t.checked;if(wd.on)void runWd();else{applyWind();buildLegend();renderLayers()}return}
-if(t.id==='wd-band'){wd.band=t.value as BandId;applyWind();buildLegend();renderLayers();return}
+if(t.id==='wd-on'){wd.on=t.checked;if(wd.on)void runWd();else{applyWind();buildLegend();drawWdVec();renderLayers()}return}
+if(t.id==='wd-band'){wd.band=t.value as BandId;applyWind();buildLegend();drawWdVec();renderLayers();return}
+if(t.id==='wd-vec'){wd.vec=t.checked;drawWdVec();return}
 if(t.id==='l-q'){st.quality=t.value as Quality;wind?.setQuality(st.quality);wind2?.setQuality(st.quality);return}
 if(t.id==='l-tc'){store.set('asiawx.tc',t.checked?'on':'off');void tc.enable(t.checked);return}
 const ok:Record<string,keyof typeof tc.opts>={'l-tcp':'prob','l-tcw':'warn','l-tcpast':'past','l-tcr':'radii','l-tcd':'danger'};

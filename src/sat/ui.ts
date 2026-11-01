@@ -61,7 +61,7 @@ const k=c.cal.get(c.lumKey);
 h+=`<p class="note">Stack order: top is JMA Infrared Band 13 (grey), bottom is NASA GIBS Clean infrared (coloured). The warm background of each is removed, so only cloud is drawn and the map shows through.</p>`;
 if(c.cmapState==='loading'||c.cmapState==='idle')h+=`<p class="note">Loading the published GIBS colormap</p>`;
 else if(c.cmapState==='error'||c.cmapState==='unusable')h+=`<p class="note err">The GIBS colormap could not be used, so the Clean infrared part cannot be read.</p>`;
-h+=`<p class="note ${k?.s==='fail'?'err':''}">${k?esc(k.s==='working'?'Calibrating JMA: '+k.m:k.s==='ok'?'JMA brightness to temperature curve ready. '+k.m:k.m):'Waiting to calibrate JMA'}</p>${k&&k.s!=='working'?`<div class="ctl"><span>Calibration</span><button type="button" class="btn sm" id="sd-recal">Recalibrate</button></div>`:''}`;
+h+=`<p class="note ${k?.s==='fail'?'err':''}">${k?esc(k.s==='working'?'Calibrating JMA: '+k.m:k.s==='ok'?'JMA brightness to temperature curve ready. '+k.m:`${k.m}. The JMA layer is skipped and only NASA GIBS Clean infrared is shown.`):'Waiting to calibrate JMA'}</p>${k&&k.s!=='working'?`<div class="ctl"><span>Calibration</span><button type="button" class="btn sm" id="sd-recal">Recalibrate</button></div>`:''}`;
 if(can)h+=`<div class="ctl"><label for="sd-fz">JMA layer on top <span id="sd-fzv">${Math.round(c.fuseTop*100)}%</span></label><input type="range" id="sd-fz" min="0" max="1" step="0.05" value="${c.fuseTop}"></div>`}
 else if(mode==='lum'){
 const k=c.cal.get(c.key);

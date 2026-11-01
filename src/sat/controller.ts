@@ -56,7 +56,7 @@ get cmapOk(){return this.cmapState==='ok'&&!!this.cmap?.usable}
 get lumKey():string{return this.mode==='fuse'?this.fparts?.j.key??'':this.key}
 get lumFit():Fit|null{const f=this.lums.get(this.lumKey);return f&&f.ok?f:null}
 get engEff():Eng{return this.eng==='v2'&&(this.mode==='cmap'||this.mode==='vis')?'v2':'v1'}
-get can():boolean{const m=this.mode;return m==='fuse'?this.cmapOk&&!!this.lumFit:m==='cmap'?this.engEff==='v2'||this.cmapOk:m==='lum'?!!this.lumFit:m==='vis'}
+get can():boolean{const m=this.mode;return m==='fuse'?this.cmapOk:m==='cmap'?this.engEff==='v2'||this.cmapOk:m==='lum'?!!this.lumFit:m==='vis'}
 get views():View[]{return this.mode==='fuse'?['fuse']:this.engEff==='v2'?(this.mode==='vis'?['raw','e2']:['raw','real','e2']):this.mode==='vis'?['raw','cloud']:['raw','enh','cold','conv','ot','cool','cloud']}
 get btSource():string{return this.mode==='lum'?'estimated from source brightness, calibrated against GIBS':'decoded from GIBS colours'}
 private get wideZ(){const L=this.layer;return L?Math.min(this.cov==='fine'?5:4,L.maxzoom):4}
@@ -100,15 +100,15 @@ const p=this.fparts;
 if(!p)return no(this.catalog?.providers.find(x=>x.id==='fused')?.msg||'Fused IR needs both JMA and GIBS infrared layers');
 await this.ensureCmap();
 if(!this.cmapOk)return no('The GIBS colormap could not be loaded');
-if(!this.lums.get(p.j.key)){if(!this.cal.has(p.j.key))await this.calibrate(p.j);if(!this.lums.get(p.j.key)?.ok)return no(`JMA calibration failed. ${this.cal.get(p.j.key)?.m??''}`)}
-const f=this.catalog?.layers.find(l=>l.key==='fused');
-return f?{ok:true,why:'',times:f.times.slice()}:no('No common frames')}
+if(!this.lums.get(p.j.key)&&!this.cal.has(p.j.key))await this.calibrate(p.j);
+const f=this.catalog?.layers.find(l=>l.key==='fused'),fit=this.lums.get(p.j.key)?.ok;
+return f?{ok:true,why:fit?'':`JMA not used (${this.cal.get(p.j.key)?.m??'no calibration'}), GIBS Clean IR only`,times:f.times.slice()}:no('No common frames')}
 shiftAt(key:string,z:number){const f=this.lums.get(key),k=2**(z-(f?.z??4));return{sx:Math.round((f?.sx??0)*k),sy:Math.round((f?.sy??0)*k)}}
 windInput(t:number,z:number){
 const p=this.fparts,c=this.cmap,f=p?this.lums.get(p.j.key):null;
-if(!p||!c||!f?.ok)return null;
+if(!p||!c)return null;
 const r=wideRange(z,Math.min(p.g.maxzoom,p.j.maxzoom)),w=(r.x1-r.x0+1)*TS,h=(r.y1-r.y0+1)*TS;
-return{r,w,h,ppd:ppdOf(r.z),job:{w,h,cur:new Uint8ClampedArray(0),cur2:null as Uint8ClampedArray|null,rgb:c.rgb.slice(),btv:c.bt.slice(),lum:f.lut,mask:diskArrays(r),...this.shiftAt(p.j.key,r.z)},tiles:{w,h,cur:this.tilesOf(p.g,t,r),cur2:this.tilesOf(p.j,t,r),prev:null} as Tiles,win:{z:r.z,x0:r.x0,y0:r.y0,w,h},main:async()=>{const [a,b]=await Promise.all([this.mosaic(p.g,t,r),this.mosaic(p.j,t,r)]);return{cur:a,cur2:b}}}}
+return{r,w,h,ppd:ppdOf(r.z),job:{w,h,cur:new Uint8ClampedArray(0),cur2:null as Uint8ClampedArray|null,rgb:c.rgb.slice(),btv:c.bt.slice(),lum:f?.ok?f.lut:null,mask:diskArrays(r),...this.shiftAt(p.j.key,r.z)},tiles:{w,h,cur:this.tilesOf(p.g,t,r),cur2:f?.ok?this.tilesOf(p.j,t,r):null,prev:null} as Tiles,win:{z:r.z,x0:r.x0,y0:r.y0,w,h},main:async()=>{const [a,b]=await Promise.all([this.mosaic(p.g,t,r),f?.ok?this.mosaic(p.j,t,r):Promise.resolve(null)]);return{cur:a,cur2:b}}}}
 async selectLayer(key:string){
 this.key=key;
 if(!this.on){this.h.change();return}
@@ -342,15 +342,15 @@ private async job(L:SatLayer,t:number,r:TileRng,wide:boolean,hi:number|null=null
 const w=(r.x1-r.x0+1)*TS,h=(r.y1-r.y0+1)*TS,view=this.view,mode=this.mode as Mode,src:Src=mode==='fuse'?'cmap':mode,fz=mode==='fuse'?this.fparts:null;
 const pt=t-COOL_STEP,prevOk=this.frames.includes(pt),needPrev=view==='cool'&&prevOk&&mode!=='vis',E=new Uint8ClampedArray(0);
 let cur:Uint8ClampedArray=E,cur2:Uint8ClampedArray|null=null,prev:Uint8ClampedArray|null=null,tiles:Tiles|undefined;
-if(lazy){tiles={w,h,cur:this.tilesOf(fz?fz.g:L,t,r),cur2:fz?this.tilesOf(fz.j,t,r):null,prev:needPrev?this.tilesOf(L,pt,r):null}}
+if(lazy){tiles={w,h,cur:this.tilesOf(fz?fz.g:L,t,r),cur2:fz&&this.lumFit?this.tilesOf(fz.j,t,r):null,prev:needPrev?this.tilesOf(L,pt,r):null}}
 else{
-const [a,b]=await Promise.all([this.mosaic(fz?fz.g:L,t,r),fz?this.mosaic(fz.j,t,r):Promise.resolve(null)]);
+const [a,b]=await Promise.all([this.mosaic(fz?fz.g:L,t,r),fz&&this.lumFit?this.mosaic(fz.j,t,r):Promise.resolve(null)]);
 cur=a;cur2=b;
 if(needPrev)prev=await this.mosaic(L,pt,r)}
 const native=!wide&&r.z===L.maxzoom&&this.map.getZoom()>=L.maxzoom-0.5;
 const eng=this.engEff,scale=eng==='v1'&&w*h<=4200000&&(view==='enh'||view==='cold'||view==='cloud')?2:1;
-const lum=mode==='lum'||mode==='fuse'?(this.lumFit as Fit).lut:null,c=this.cmap;
-const job:DecodeIn={w,h,cur,cur2,fuse:fz?{top:this.fuseTop,...this.shiftAt(fz.j.key,r.z)}:null,prev,view,thr:this.thr,native,rgb:this.palOn&&c?c.rgb.slice():new Uint8Array(0),btv:this.palOn&&c?c.bt.slice():new Float32Array(0),lum,src,mask:diskArrays(r),smooth:this.smoothLv,scale,ppd:ppdOf(r.z),eng,v2:JSON.parse(JSON.stringify(this.v2)),hi,ox:r.x0*TS,oy:r.y0*TS};
+const lum=mode==='lum'?(this.lumFit as Fit).lut:mode==='fuse'?this.lumFit?.lut??null:null,c=this.cmap;
+const job:DecodeIn={w,h,cur,cur2:fz&&!this.lumFit?null:cur2,fuse:fz?{top:this.fuseTop,...this.shiftAt(fz.j.key,r.z)}:null,prev,view,thr:this.thr,native,rgb:this.palOn&&c?c.rgb.slice():new Uint8Array(0),btv:this.palOn&&c?c.bt.slice():new Float32Array(0),lum,src,mask:diskArrays(r),smooth:this.smoothLv,scale,ppd:ppdOf(r.z),eng,v2:JSON.parse(JSON.stringify(this.v2)),hi,ox:r.x0*TS,oy:r.y0*TS};
 const key=this.curKey(),box=boxOf(r);
 const mk=(res:{ow:number;oh:number;stats:Stats}):Meta=>({z:r.z,x0:r.x0,y0:r.y0,w,h,ow:res.ow,oh:res.oh,native,time:t,view,key,stats:res.stats,prevOk,wide,src,box,eng});
 return{job,mk,tiles}}
@@ -363,11 +363,13 @@ if(!this.on||!L||t==null||this.playing||this.busy||this.loopMode||this.saving)re
 const mode=this.mode;
 if(!mode)return;
 if(this.engEff==='v2'&&this.view==='raw'){this.dstat='';this.dkind='info';this.applyOpacity();this.h.change();return}
+const tok0=this.dtok;
 if(mode==='fuse'){
 const p=this.fparts;if(!p)return;
 if(this.cmapState==='idle'||this.cmapState==='loading')await this.ensureCmap();
 if(!this.cmapOk){this.dstat='Fused IR needs the GIBS colormap, which could not be loaded';this.dkind='err';this.h.change();return}
-if(!this.lumFit){if(!this.cal.has(p.j.key))await this.calibrate(p.j);if(!this.lumFit){this.dstat=`Fused IR needs the JMA Band 13 calibration. ${this.cal.get(p.j.key)?.m??''}`;this.dkind='err';this.h.change();return}}}
+if(!this.lumFit&&!this.cal.has(p.j.key)){this.dstat='Calibrating JMA against GIBS';this.dkind='info';this.h.change();await this.calibrate(p.j)}
+if(tok0!==this.dtok)return}
 if(mode==='cmap'){
 if(this.cmapState==='idle'||this.cmapState==='loading'){await this.ensureCmap();if(this.engEff==='v1'||this.cmapOk)return}
 if(this.engEff==='v1'&&!this.cmapOk)return}
@@ -383,12 +385,17 @@ if(detail)await this.decodeDetail(L,t,tok);
 else{this.meta=null;this.bt=null}
 if(tok!==this.dtok)return;
 const st=(this.meta??this.wmeta)?.stats;
-this.dstat=!st?'':st.valid===0?'No satellite pixels in this area':mode==='cmap'&&st.unmatched>st.valid*0.05?'Many pixel colours did not match the colormap, so temperatures may be unreliable here':'';
-this.dkind=this.dstat?'warn':'info'
+this.dstat=!st?'':st.valid===0?'No satellite pixels in this area':mode==='fuse'?this.fuseMsg(st):mode==='cmap'&&st.unmatched>st.valid*0.05?'Many pixel colours did not match the colormap, so temperatures may be unreliable here':'';
+this.dkind=mode==='fuse'&&st&&st.valid>0?(!this.lumFit||st.flag===0?'warn':'info'):this.dstat?'warn':'info'
 }catch{
 if(tok!==this.dtok)return;
 this.dstat='Decoding failed. Tiles could not be read or blocked by the browser (CORS).';this.dkind='err'}
 this.applyOpacity();this.h.change()}
+private fuseMsg(st:Stats):string{
+const k=this.fparts?this.cal.get(this.fparts.j.key):null;
+if(!this.lumFit)return`JMA layer not used${k?` (${k.m})`:''}. Showing NASA GIBS Clean infrared only, background removed`;
+if(!st.flag)return'No cloud found in this frame';
+return`Fused IR: ${Math.round(st.flag/st.valid*100)}% of the disk is cloud${this.lumFit.approx?'. JMA matched by brightness distribution':''}`}
 private async decodeWide(L:SatLayer,t:number,tok:number){
 if(this.view==='conv'||this.view==='ot'){this.wmeta=null;this.wbt=null;this.applyOpacity();return}
 const r=wideRange(this.wideZ,L.maxzoom),key=`${L.key}|${t}|${this.curKey()}|${r.z}`,hit=this.wcache.get(key);

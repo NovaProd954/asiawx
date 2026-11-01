@@ -8,7 +8,8 @@ export interface Trk{x:number;y:number;dx:number;dy:number;corr:number;sharp:num
 export interface Vec{lon:number;lat:number;u:number;v:number;bt:number;qi:number;corr:number;p:number;vd:number;ok:boolean}
 export interface Levels{lon0:number;lat0:number;d:number;nx:number;ny:number;p:number[];t:Float32Array[];u:Float32Array[];v:Float32Array[]}
 export interface BandOut{id:BandId;u:Float32Array;v:Float32Array;conf:Float32Array;n:number}
-export interface Analysis{lon0:number;lat0:number;d:number;nx:number;ny:number;bands:BandOut[];stats:Stats}
+export interface VecOut{lon:number;lat:number;u:number;v:number;p:number;qi:number}
+export interface Analysis{lon0:number;lat0:number;d:number;nx:number;ny:number;bands:BandOut[];stats:Stats;vecs:VecOut[]}
 export interface Stats{tracked:number;accepted:number;rejected:number;rmsVD:number;medVD:number;clamped:number}
 export const mPerPx=(lat:number,z:number)=>2*Math.PI*RE*Math.cos(lat*Math.PI/180)/(256*2**z);
 export const xToLon=(x:number,z:number)=>x/2**z*360-180;
@@ -140,4 +141,4 @@ const a=sw[k]/(sw[k]+W0);
 conf[k]=a;
 if(sw[k]>0){bu[k]+=a*su[k]/sw[k];bv[k]+=a*sv[k]/sw[k]}}
 bands.push({id:b.id,u:bu,v:bv,conf,n:cnt})}
-return{lon0,lat0,d,nx,ny,bands,stats:{tracked:vs.length,accepted:sorted.length,rejected:vs.length-sorted.length,rmsVD:rms,medVD:med,clamped:vs.filter(v=>v.ok&&(v.p<=P_LEV[P_LEV.length-1]||v.p>=P_LEV[0])).length}}}
+return{lon0,lat0,d,nx,ny,bands,vecs:sorted.filter(v=>v.qi>=0.35).sort((p,q)=>q.qi-p.qi).slice(0,2500).map(v=>({lon:v.lon,lat:v.lat,u:v.u,v:v.v,p:v.p,qi:v.qi})),stats:{tracked:vs.length,accepted:sorted.length,rejected:vs.length-sorted.length,rmsVD:rms,medVD:med,clamped:vs.filter(v=>v.ok&&(v.p<=P_LEV[P_LEV.length-1]||v.p>=P_LEV[0])).length}}}

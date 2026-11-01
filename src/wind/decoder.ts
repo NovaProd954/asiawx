@@ -3,7 +3,7 @@ import {Pool} from '../sat/pool';
 import {fusedBT} from './bt';
 import {track,vectors,analyse,type Analysis,type Trk,type Win} from './amv';
 import {loadLevels} from '../data/levels';
-export interface WdResult{t:number;t0:number;dt:number;model:string;a:Analysis;ms:{total:number;frames:number;track:number;analyse:number};workers:number}
+export interface WdResult{t:number;t0:number;dt:number;model:string;lvModel:string;note:string;a:Analysis;ms:{total:number;frames:number;track:number;analyse:number};workers:number}
 export const WD_Z=4,WD_MIN_DT=1500;
 export function pickTimes(times:number[],want:number|null):{t1:number;t0:number}|null{
 const s=[...times].sort((a,b)=>a-b);
@@ -36,7 +36,9 @@ let r:{bt:Float32Array}|null=null;
 if(pool.size&&typeof OffscreenCanvas!=='undefined'){try{r=await pool.call<{bt:Float32Array}>('wbt',inp.job,[],inp.tiles)}catch{r=null}}
 if(!r){const m=await inp.main();r=fusedBT({...inp.job,cur:m.cur,cur2:m.cur2})}
 return{bt:r.bt,w:inp.w,h:inp.h,win:inp.win,ppd:inp.ppd}};
-const [L,f1,f0]=await Promise.all([loadLevels(model,tt.t1),frame(tt.t1),frame(tt.t0)]);
+let lvModel=model;
+const lv=loadLevels(model,tt.t1).catch(e=>{if(model==='gfs_seamless')throw e;lvModel='gfs_seamless';return loadLevels('gfs_seamless',tt.t1)}).catch(e=>{throw new Error(`Model pressure-level data unavailable (${e instanceof Error?e.message:'error'})`)});
+const [L,f1,f0]=await Promise.all([lv,frame(tt.t1),frame(tt.t0)]);
 if(stale())return null;
 const t1=performance.now();
 this.phase='Tracking cloud motion';hook();
@@ -52,7 +54,7 @@ let a:Analysis;
 if(pool.size){try{a=await pool.call<Analysis>('wan',{trk,win:f1.win,dt,L})}catch{a=analyse(vectors(trk,f1.win,dt,L),L)}}
 else a=analyse(vectors(trk,f1.win,dt,L),L);
 if(stale())return null;
-const t3=performance.now(),res:WdResult={t:tt.t1,t0:tt.t0,dt,model,a,ms:{total:t3-t0,frames:t1-t0,track:t2-t1,analyse:t3-t2},workers:pool.size};
+const t3=performance.now(),res:WdResult={t:tt.t1,t0:tt.t0,dt,model,lvModel,note:prep.why,a,ms:{total:t3-t0,frames:t1-t0,track:t2-t1,analyse:t3-t2},workers:pool.size};
 this.cache.set(`${model}|${tt.t1}`,res);
 while(this.cache.size>6)this.cache.delete(this.cache.keys().next().value as string);
 this.last=res;return res
