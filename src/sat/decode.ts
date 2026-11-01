@@ -1,12 +1,12 @@
 import {btLut} from './pal';
-import {fitCurve,lumOf,type Fit} from './calib';
+import {fitCurve,shiftRGBA,findShift,lumOf,type Fit} from './calib';
 import {LIMB,diskVis} from './geo';
 import {runV2,type V2P} from './real';
 export type View='raw'|'enh'|'cold'|'conv'|'ot'|'cool'|'cloud'|'real'|'e2'|'fuse';
 export type Eng='v1'|'v2';
 export type Src='cmap'|'lum'|'vis';
 export interface Mask{row:Float32Array;col:Float32Array}
-export interface DecodeIn{w:number;h:number;cur:Uint8ClampedArray;prev:Uint8ClampedArray|null;view:View;thr:number;native:boolean;rgb:Uint8Array;btv:Float32Array;lum?:Float32Array|null;src?:Src;mask?:Mask|null;smooth?:number;scale?:number;ppd?:number;eng?:Eng;v2?:V2P;hi?:number|null;ox?:number;oy?:number;cur2?:Uint8ClampedArray|null;fuse?:{top:number}|null}
+export interface DecodeIn{w:number;h:number;cur:Uint8ClampedArray;prev:Uint8ClampedArray|null;view:View;thr:number;native:boolean;rgb:Uint8Array;btv:Float32Array;lum?:Float32Array|null;src?:Src;mask?:Mask|null;smooth?:number;scale?:number;ppd?:number;eng?:Eng;v2?:V2P;hi?:number|null;ox?:number;oy?:number;cur2?:Uint8ClampedArray|null;fuse?:{top:number;sx?:number;sy?:number}|null}
 export interface Stats{valid:number;unmatched:number;min:number|null;flag:number}
 export interface DecodeOut{out:Uint8ClampedArray;ow:number;oh:number;bt:Float32Array;stats:Stats}
 export interface CalibIn{w:number;h:number;src:Uint8ClampedArray;ref:Uint8ClampedArray;rgb:Uint8Array;btv:Float32Array;mask:Mask}
@@ -209,4 +209,8 @@ return{out:r.out,ow:r.ow,oh:r.oh,bt,stats:{valid,unmatched:o.unmatched,min:valid
 export function calibrate(j:CalibIn):Fit{
 const lut=btLut(j.rgb,j.btv),bt=decodeBT(j.ref,lut,{unmatched:0});
 applyMask(bt,j.w,j.h,j.mask);
-return fitCurve(j.src,bt)}
+const f0=fitCurve(j.src,bt),s=findShift(j.src,bt,j.w,j.h);
+if(!(s.sx||s.sy)||s.c<s.c0+0.002)return f0;
+const f1=fitCurve(shiftRGBA(j.src,j.w,j.h,s.sx,s.sy),bt);
+if(!f1.ok||(f0.ok&&(f1.fitR??0)<(f0.fitR??0)))return f0;
+return{...f1,sx:s.sx,sy:s.sy,why:`${f1.why?f1.why+'; ':''}JMA shifted by ${s.sx}, ${s.sy} px to line up`}}

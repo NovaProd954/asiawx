@@ -1,5 +1,5 @@
 import {btLut} from './pal';
-import {lumOf} from './calib';
+import {lumOf,shiftRGBA} from './calib';
 import {diskVis} from './geo';
 import {run,decodeBT,smooth,clearRef,applyMask,type DecodeIn,type DecodeOut} from './decode';
 export function fuseBT(a:Float32Array,b:Float32Array):Float32Array{
@@ -35,7 +35,7 @@ return{out,flag}}
 export function runFuse(i:DecodeIn):DecodeOut{
 const {w,h}=i,n=w*h,o={unmatched:0},lv=i.smooth??1,ppd=i.ppd??11.4,top=Math.max(0,Math.min(1,i.fuse?.top??FUSE_TOP));
 const bg=i.rgb.length?decodeBT(i.cur,btLut(i.rgb,i.btv),o):new Float32Array(n).fill(NaN);
-const L=i.lum,j=i.cur2??null,bj=j&&L?decodeBT(j,(r,g,b)=>L[lumOf(r,g,b)],{unmatched:0}):new Float32Array(n).fill(NaN);
+const L=i.lum,j=i.cur2?shiftRGBA(i.cur2,w,h,i.fuse?.sx??0,i.fuse?.sy??0):null,bj=j&&L?decodeBT(j,(r,g,b)=>L[lumOf(r,g,b)],{unmatched:0}):new Float32Array(n).fill(NaN);
 const bt=fuseBT(bg,bj);
 if(i.mask)applyMask(bt,w,h,i.mask);
 const m=i.mask,vis=m?(k:number)=>diskVis(m.row[(k/w)|0]*m.col[k%w]):null,a=cloudAlpha(bt,w,h,ppd,lv),ag=new Float32Array(n),aj=j&&L?new Float32Array(n):null;

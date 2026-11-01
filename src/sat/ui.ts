@@ -58,7 +58,7 @@ else if(c.cmapState==='error')h+=`<p class="note err">The GIBS colormap could no
 else if(c.cmapState==='unusable')h+=`<p class="note err">The GIBS colormap for this layer has no temperature labels that AsiaWX can read, so temperatures are not decoded. Raw imagery is unaffected.</p>`}
 else if(mode==='fuse'){
 const k=c.cal.get(c.lumKey);
-h+=`<p class="note">Two Himawari-9 Band 13 sources are stacked, JMA Infrared Band 13 on top of NASA GIBS Clean infrared. The warm background of each is removed, so only cloud is drawn and the map shows through.</p>`;
+h+=`<p class="note">Stack order: top is JMA Infrared Band 13 (grey), bottom is NASA GIBS Clean infrared (coloured). The warm background of each is removed, so only cloud is drawn and the map shows through.</p>`;
 if(c.cmapState==='loading'||c.cmapState==='idle')h+=`<p class="note">Loading the published GIBS colormap</p>`;
 else if(c.cmapState==='error'||c.cmapState==='unusable')h+=`<p class="note err">The GIBS colormap could not be used, so the Clean infrared part cannot be read.</p>`;
 h+=`<p class="note ${k?.s==='fail'?'err':''}">${k?esc(k.s==='working'?'Calibrating JMA: '+k.m:k.s==='ok'?'JMA brightness to temperature curve ready. '+k.m:k.m):'Waiting to calibrate JMA'}</p>${k&&k.s!=='working'?`<div class="ctl"><span>Calibration</span><button type="button" class="btn sm" id="sd-recal">Recalibrate</button></div>`:''}`;

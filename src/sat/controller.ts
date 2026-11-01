@@ -90,8 +90,8 @@ if(!g||!j){no(`needs both layers, missing ${[!g&&'NASA GIBS Clean infrared',!j&&
 const times=g.times.filter(t=>j.times.includes(t));
 if(times.length<2){no('the two layers share fewer than 2 frame times');return}
 const f:SatLayer={key:'fused',id:'FUSED/IR',name:'Fused IR (JMA over Clean IR)',kind:'ir',tms:g.tms,maxzoom:Math.min(g.maxzoom,j.maxzoom),format:'image/png',template:'',times,step:g.step||600,provider:'fused',tfmt:'iso',attribution:`${g.attribution??''}; ${j.attribution??''}`,decode:false};
-c.layers.splice(c.layers.indexOf(g)+1,0,f);
-c.providers.push({id:'fused',name:'Fused IR (JMA over NASA GIBS)',ok:true,msg:''});
+c.layers.unshift(f);
+c.providers.unshift({id:'fused',name:'Fused IR: JMA on top, NASA GIBS Clean IR below',ok:true,msg:''});
 this.fparts={g,j}}
 async windPrep():Promise<{ok:boolean;why:string;times:number[]}>{
 const no=(why:string)=>({ok:false,why,times:[] as number[]});
@@ -103,11 +103,12 @@ if(!this.cmapOk)return no('The GIBS colormap could not be loaded');
 if(!this.lums.get(p.j.key)){if(!this.cal.has(p.j.key))await this.calibrate(p.j);if(!this.lums.get(p.j.key)?.ok)return no(`JMA calibration failed. ${this.cal.get(p.j.key)?.m??''}`)}
 const f=this.catalog?.layers.find(l=>l.key==='fused');
 return f?{ok:true,why:'',times:f.times.slice()}:no('No common frames')}
+shiftAt(key:string,z:number){const f=this.lums.get(key),k=2**(z-(f?.z??4));return{sx:Math.round((f?.sx??0)*k),sy:Math.round((f?.sy??0)*k)}}
 windInput(t:number,z:number){
 const p=this.fparts,c=this.cmap,f=p?this.lums.get(p.j.key):null;
 if(!p||!c||!f?.ok)return null;
 const r=wideRange(z,Math.min(p.g.maxzoom,p.j.maxzoom)),w=(r.x1-r.x0+1)*TS,h=(r.y1-r.y0+1)*TS;
-return{r,w,h,ppd:ppdOf(r.z),job:{w,h,cur:new Uint8ClampedArray(0),cur2:null as Uint8ClampedArray|null,rgb:c.rgb.slice(),btv:c.bt.slice(),lum:f.lut,mask:diskArrays(r)},tiles:{w,h,cur:this.tilesOf(p.g,t,r),cur2:this.tilesOf(p.j,t,r),prev:null} as Tiles,win:{z:r.z,x0:r.x0,y0:r.y0,w,h},main:async()=>{const [a,b]=await Promise.all([this.mosaic(p.g,t,r),this.mosaic(p.j,t,r)]);return{cur:a,cur2:b}}}}
+return{r,w,h,ppd:ppdOf(r.z),job:{w,h,cur:new Uint8ClampedArray(0),cur2:null as Uint8ClampedArray|null,rgb:c.rgb.slice(),btv:c.bt.slice(),lum:f.lut,mask:diskArrays(r),...this.shiftAt(p.j.key,r.z)},tiles:{w,h,cur:this.tilesOf(p.g,t,r),cur2:this.tilesOf(p.j,t,r),prev:null} as Tiles,win:{z:r.z,x0:r.x0,y0:r.y0,w,h},main:async()=>{const [a,b]=await Promise.all([this.mosaic(p.g,t,r),this.mosaic(p.j,t,r)]);return{cur:a,cur2:b}}}}
 async selectLayer(key:string){
 this.key=key;
 if(!this.on){this.h.change();return}
@@ -157,8 +158,8 @@ if(this.lums.has(L.key))return;
 try{
 const j=JSON.parse(localStorage.getItem(LK(L))||'null');
 if(j&&Date.now()-j.at<14*DAY&&Array.isArray(j.lut)&&j.lut.length===256){
-this.lums.set(L.key,{ok:true,lut:Float32Array.from(j.lut),rms:j.rms,n:j.n,corr:j.corr,chroma:0,why:''});
-this.cal.set(L.key,{s:'ok',m:`RMS ${(+j.rms).toFixed(1)} K against GIBS, saved on this device ${new Date(j.at).toISOString().slice(0,10)}`})}
+this.lums.set(L.key,{ok:true,lut:Float32Array.from(j.lut),rms:j.rms,n:j.n,corr:j.corr,chroma:0,why:'',approx:!!j.approx,sx:j.sx,sy:j.sy,z:j.z});
+this.cal.set(L.key,{s:'ok',m:`${j.approx?'Distribution matched, ':''}RMS ${(+j.rms).toFixed(1)} K against GIBS${j.sx||j.sy?`, JMA shifted ${j.sx}, ${j.sy} px`:''}, saved on this device ${new Date(j.at).toISOString().slice(0,10)}`})}
 }catch{}}
 async calibrate(L:SatLayer){
 const k=L.key,set=(s:'working'|'ok'|'fail',m:string)=>{this.cal.set(k,{s,m});this.h.change()};
@@ -175,9 +176,10 @@ const [src,ref]=await Promise.all([this.mosaic(L,t,r),this.mosaic(A,t,r)]),c=thi
 const job:CalibIn={w,h,src,ref,rgb:c.rgb.slice(),btv:c.bt.slice(),mask:diskArrays(r)};
 const fit=await this.call<Fit>('calib',job);
 if(!fit.ok){set('fail',`Calibration rejected: ${fit.why}`);return}
+fit.z=r.z;
 this.lums.set(k,fit);
-try{localStorage.setItem(LK(L),JSON.stringify({at:Date.now(),lut:Array.from(fit.lut),rms:fit.rms,n:fit.n,corr:fit.corr}))}catch{}
-set('ok',`RMS ${fit.rms.toFixed(1)} K against GIBS over ${fit.n.toLocaleString('en-US')} px`)
+try{localStorage.setItem(LK(L),JSON.stringify({at:Date.now(),lut:Array.from(fit.lut),rms:fit.rms,n:fit.n,corr:fit.corr,approx:!!fit.approx,sx:fit.sx??0,sy:fit.sy??0,z:fit.z}))}catch{}
+set('ok',`${fit.approx?'Distribution matched, ':''}RMS ${fit.rms.toFixed(1)} K against GIBS over ${fit.n.toLocaleString('en-US')} px${fit.sx||fit.sy?`, JMA shifted ${fit.sx}, ${fit.sy} px`:''}${fit.why?`. ${fit.why}`:''}`)
 }catch{set('fail','Tiles for calibration could not be read. They may be blocked (CORS) or offline.')}}
 async recalibrate(){
 const L=this.mode==='fuse'?this.fparts?.j:this.layer;if(!L||(this.mode!=='lum'&&this.mode!=='fuse'))return;
@@ -348,7 +350,7 @@ if(needPrev)prev=await this.mosaic(L,pt,r)}
 const native=!wide&&r.z===L.maxzoom&&this.map.getZoom()>=L.maxzoom-0.5;
 const eng=this.engEff,scale=eng==='v1'&&w*h<=4200000&&(view==='enh'||view==='cold'||view==='cloud')?2:1;
 const lum=mode==='lum'||mode==='fuse'?(this.lumFit as Fit).lut:null,c=this.cmap;
-const job:DecodeIn={w,h,cur,cur2,fuse:fz?{top:this.fuseTop}:null,prev,view,thr:this.thr,native,rgb:this.palOn&&c?c.rgb.slice():new Uint8Array(0),btv:this.palOn&&c?c.bt.slice():new Float32Array(0),lum,src,mask:diskArrays(r),smooth:this.smoothLv,scale,ppd:ppdOf(r.z),eng,v2:JSON.parse(JSON.stringify(this.v2)),hi,ox:r.x0*TS,oy:r.y0*TS};
+const job:DecodeIn={w,h,cur,cur2,fuse:fz?{top:this.fuseTop,...this.shiftAt(fz.j.key,r.z)}:null,prev,view,thr:this.thr,native,rgb:this.palOn&&c?c.rgb.slice():new Uint8Array(0),btv:this.palOn&&c?c.bt.slice():new Float32Array(0),lum,src,mask:diskArrays(r),smooth:this.smoothLv,scale,ppd:ppdOf(r.z),eng,v2:JSON.parse(JSON.stringify(this.v2)),hi,ox:r.x0*TS,oy:r.y0*TS};
 const key=this.curKey(),box=boxOf(r);
 const mk=(res:{ow:number;oh:number;stats:Stats}):Meta=>({z:r.z,x0:r.x0,y0:r.y0,w,h,ow:res.ow,oh:res.oh,native,time:t,view,key,stats:res.stats,prevOk,wide,src,box,eng});
 return{job,mk,tiles}}
